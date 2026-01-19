@@ -1,6 +1,8 @@
 const header = document.getElementById("header-bar");
 const headerHeight = header.offsetHeight;
 
+window.wireEmployeesTable = wireEmployeesTable;
+
 document.documentElement.style.setProperty(
     "--header-height",
     headerHeight + "px",
@@ -385,6 +387,107 @@ function initReports() {
     setCategory(activeCategory);
 }
 
+// =========================
+// Employees table -> details card
+// =========================
+
+function parseMoney(raw) {
+  const cleaned = (raw || "").toString().replace(/[^0-9.-]/g, "");
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+}
+
+function formatMoney(num) {
+  if (!Number.isFinite(num)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function initialsFromName(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] || "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase() || "??";
+}
+
+function setMetricByLabel(cardEl, labelText, valueText, valueClass = "") {
+  const metrics = cardEl.querySelectorAll(".metric");
+  for (const metric of metrics) {
+    const label = metric.querySelector(".label");
+    const value = metric.querySelector(".value");
+    if (!label || !value) continue;
+
+    if (label.textContent.trim().toLowerCase() === labelText.trim().toLowerCase()) {
+      value.textContent = valueText;
+      value.className = "value" + (valueClass ? ` ${valueClass}` : "");
+      return true;
+    }
+  }
+  return false;
+}
+
+function wireEmployeesTable() {
+  const table = document.querySelector(".employees_table");
+  const card = document.querySelector(".employee_card");
+  if (!table || !card) return;
+
+  table.addEventListener("click", (e) => {
+    const row = e.target.closest("tr");
+    if (!row) return;
+    if (row.querySelector("th")) return; // header row
+
+    const cells = row.querySelectorAll("td");
+    // Expect: Name, Position, Department, Net, Contributions, Deductions
+    if (cells.length < 6) return;
+
+    const name = cells[0].textContent.trim();
+    const position = cells[1].textContent.trim();
+    const department = cells[2].textContent.trim();
+
+    const netNum = parseMoney(cells[3].textContent);
+    const contribNum = parseMoney(cells[4].textContent);
+    const deductNum = parseMoney(cells[5].textContent);
+
+    // Selected row highlight
+    table.querySelectorAll("tr.is-selected").forEach((r) => r.classList.remove("is-selected"));
+    row.classList.add("is-selected");
+
+    // Populate top of card
+    const avatar = card.querySelector(".employee_avatar span");
+    const nameEl = card.querySelector(".employee_name");
+    const roleEl = card.querySelector(".employee_role");
+
+    if (avatar) avatar.textContent = initialsFromName(name);
+    if (nameEl) nameEl.textContent = name;
+    if (roleEl) roleEl.textContent = `${position} • ${department}`;
+
+    // Populate metrics (labels must match your card labels exactly)
+    setMetricByLabel(card, "Net Salary", netNum !== null ? formatMoney(netNum) : "—");
+    setMetricByLabel(card, "Contributions", contribNum !== null ? formatMoney(contribNum) : "—");
+
+    // Show deductions as negative in the card
+    if (deductNum !== null) {
+      setMetricByLabel(card, "Deductions", `-${formatMoney(Math.abs(deductNum))}`, "negative");
+    } else {
+      setMetricByLabel(card, "Deductions", "—", "negative");
+    }
+  });
+
+  // Auto-select first row
+  const firstDataRow = table.querySelectorAll("tr")[1];
+  if (firstDataRow) {
+    firstDataRow.classList.add("is-selected");
+    firstDataRow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
+}
+
+// If your SPA swaps sections without reload, also call wireEmployeesTable()
+// right after you render/show the employees page in your router.
+
 document.addEventListener("DOMContentLoaded", () => {
     initReports();
+    wireEmployeesTable();
 });
