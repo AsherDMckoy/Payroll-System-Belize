@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Payroll System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/css/styles.css">
+  </head>
+  <body>
+    <header id="header-bar"><h1>Welcome, {{ name }}</h1></header>
+    <div class="layout">
+      <nav class="main_navigation">
+	      <a href="/">Dashboard</a>
+	      <a href="/payroll">Payroll</a>
+	      <a href="/employees">Employees</a>
+	      <a href="/reports">Reports</a>
+      </nav>
+      <main>
+	      <section id="overview-section" >
+	        {% include "dashboard_overview.html" %}
+	      </section>
+	      <section id="payroll-section" hidden>
+          {% include "process_payroll.html" %}
+	      </section>
+	      <section id="employees-section" hidden>
+          {% include "employees.html" %}
+	      </section>
+	      <section id="reports-section" hidden>
+	        <h2>Generate Reports</h2>
+	      </section>
+      </main>
+    </div>
+    <script src="/assets/js/router.js"></script>
+    <script src="/assets/js/app.js"></script>
+  </body>
+</html>
