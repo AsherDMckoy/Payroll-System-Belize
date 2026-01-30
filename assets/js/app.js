@@ -98,51 +98,53 @@ function escapeHtml(s) {
 }
 
 async function loadPayrollBreakdown(year) {
-  const component = document.getElementById("payroll-breakdown-chart");
-  if (!component) return;
+  const components = document.querySelectorAll('.payroll_breakdown[data-chart="payroll-breakdown"]');
+  if (!components.length) return;
 
   try {
     const res = await fetch("/api/payroll-breakdown?year=" + encodeURIComponent(year || 2026));
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
 
-    const chart = component.querySelector(".breakdowns_chart");
-    if (!chart) return;
-
-    const breakdowns = Array.from(chart.querySelectorAll(".breakdown"));
     const months = data.months || [];
     const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-    for (let i = 0; i < 12; i++) {
-      const m = months[i];
-      const b = breakdowns[i];
-      if (!b) continue;
+    components.forEach((component) => {
+      const chart = component.querySelector(".breakdowns_chart");
+      if (!chart) return;
 
-      const total = m ? m.total : 0;
-      const base = m ? m.base : 0;
-      const overtime = m ? m.overtime : 0;
-      const incentives = m ? m.incentives : 0;
+      const breakdowns = Array.from(chart.querySelectorAll(".breakdown"));
 
-      const totalEl = b.querySelector(".breakdown_total");
-      const bar = b.querySelector(".breakdown_bar");
-      const monthEl = b.querySelector(".breakdown_month");
-      if (totalEl) totalEl.textContent = String(total);
-      if (bar) {
-        bar.dataset.base = String(base);
-        bar.dataset.overtime = String(overtime);
-        bar.dataset.incentives = String(incentives);
+      for (let i = 0; i < 12; i++) {
+        const m = months[i];
+        const b = breakdowns[i];
+        if (!b) continue;
+
+        const total = m ? m.total : 0;
+        const base = m ? m.base : 0;
+        const overtime = m ? m.overtime : 0;
+        const incentives = m ? m.incentives : 0;
+
+        const totalEl = b.querySelector(".breakdown_total");
+        const bar = b.querySelector(".breakdown_bar");
+        const monthEl = b.querySelector(".breakdown_month");
+        if (totalEl) totalEl.textContent = String(total);
+        if (bar) {
+          bar.dataset.base = String(base);
+          bar.dataset.overtime = String(overtime);
+          bar.dataset.incentives = String(incentives);
+        }
+        if (monthEl) monthEl.textContent = m ? m.label : monthLabels[i] || "";
+
+        const tooltipList = b.querySelectorAll(".tooltip_list_item .tooltip_breakdown_value");
+        if (tooltipList.length >= 3) {
+          tooltipList[0].textContent = String(base);
+          tooltipList[1].textContent = String(overtime);
+          tooltipList[2].textContent = String(incentives);
+        }
       }
-      if (monthEl) monthEl.textContent = m ? m.label : monthLabels[i] || "";
+    });
 
-      const tooltipList = b.querySelectorAll(".tooltip_list_item .tooltip_breakdown_value");
-      if (tooltipList.length >= 3) {
-        tooltipList[0].textContent = String(base);
-        tooltipList[1].textContent = String(overtime);
-        tooltipList[2].textContent = String(incentives);
-      }
-    }
-
-    // Use document as root so the chart is found (querySelectorAll only matches descendants)
     initPayrollBreakdownCharts();
   } catch (err) {
     console.error("loadPayrollBreakdown:", err);
@@ -196,7 +198,7 @@ async function loadEmployees() {
 
 function initOverviewPage() {
   loadDashboardOverview();
-  const chart = document.getElementById("payroll-breakdown-chart");
+  const chart = document.querySelector('.payroll_breakdown[data-chart="payroll-breakdown"]');
   const activeYearBtn = chart && chart.querySelector(".year_chip.is-active");
   const year = activeYearBtn ? (activeYearBtn.dataset.year || "2026") : "2026";
   loadPayrollBreakdown(year);
@@ -211,9 +213,12 @@ function initReportsPage() {
   initReports();
 }
 
-// Payroll process page init (no API yet)
+// Payroll process page init – populate chart so it works when landing directly on /payroll
 function initPayrollPage() {
-  // placeholder
+  const chart = document.querySelector('.payroll_breakdown[data-chart="payroll-breakdown"]');
+  const activeYearBtn = chart && chart.querySelector(".year_chip.is-active");
+  const year = activeYearBtn ? (activeYearBtn.dataset.year || "2026") : "2026";
+  loadPayrollBreakdown(year);
 }
 
 // Expose for router
