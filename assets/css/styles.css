@@ -457,7 +457,7 @@ select:focus-visible {
 }
 
 
-/* Tooltip: above the bar, with color legend matching bar segments */
+/* Tooltip: above the bar, left-aligned content, color circles match bar segments */
 .tooltip .tooltip_text {
   visibility: hidden;
   opacity: 0;
@@ -475,6 +475,7 @@ select:focus-visible {
   transition: opacity 140ms ease, transform 140ms ease, visibility 0s linear 140ms;
   box-shadow: var(--shadow);
   pointer-events: none;
+  text-align: left;
 }
 
 .tooltip:hover .tooltip_text {
@@ -484,23 +485,50 @@ select:focus-visible {
   transition-delay: 0s;
 }
 
+.tooltip .tooltip_subtitle {
+  text-align: left;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tooltip .tooltip_list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+}
+
 .tooltip_list_item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
   font-size: 0.8rem;
-  padding: 0.25rem 0;
+  padding: 0.2rem 0;
   color: var(--muted);
+  text-align: left;
 }
 
-/* Color swatches in tooltip match bar segment gradient colors */
+.tooltip_list_item .tooltip_breakdown_category {
+  flex: 1;
+  text-align: left;
+}
+
+.tooltip_list_item .tooltip_breakdown_value {
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Color circles in tooltip match bar segment colors */
 .tooltip_swatch {
   flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
 }
 .tooltip_swatch_base {
   background: linear-gradient(135deg, rgba(124, 92, 255, 0.95), rgba(124, 92, 255, 0.55));
