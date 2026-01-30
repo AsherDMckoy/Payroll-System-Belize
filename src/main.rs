@@ -1,6 +1,8 @@
+pub mod handlers;
 pub mod models;
 use std::net::SocketAddr;
 
+use crate::handlers::api::{dashboard_overview, employees_list, payroll_breakdown};
 use crate::models::views::{HtmlTemplate, IndexTemplate};
 use axum::{
     response::{Html, IntoResponse},
@@ -14,12 +16,14 @@ use tower_http::services::{ServeDir, ServeFile};
 async fn main() -> Result<(), std::io::Error> {
     dotenvy::dotenv().ok();
     env_logger::init();
-    // build our application with a single route
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/payroll", get(index_handler))
         .route("/employees", get(index_handler))
         .route("/reports", get(index_handler))
+        .route("/api/dashboard/overview", get(dashboard_overview))
+        .route("/api/employees", get(employees_list))
+        .route("/api/payroll-breakdown", get(payroll_breakdown))
         .route_service("/favicon.ico", ServeFile::new("assets/favicon.ico"))
         .nest_service("/assets", ServeDir::new("assets"))
         .fallback(fallback_handler);
