@@ -1,8 +1,6 @@
 const header = document.getElementById("header-bar");
 const headerHeight = header.offsetHeight;
 
-window.wireEmployeesTable = wireEmployeesTable;
-
 document.documentElement.style.setProperty(
     "--header-height",
     headerHeight + "px",
@@ -487,7 +485,112 @@ function wireEmployeesTable() {
 // If your SPA swaps sections without reload, also call wireEmployeesTable()
 // right after you render/show the employees page in your router.
 
+
+// =========================
+// Payroll Chart Initialize
+// =========================
+
+function initPayrollBreakdownCharts(root = document) {
+  const charts = Array.from(
+    root.querySelectorAll('.payroll_breakdown[data-chart="payroll-breakdown"]')
+  );
+
+  charts.forEach((component) => {
+    const chart = component.querySelector(".breakdowns_chart");
+    if (!chart) return;
+
+    const breakdowns = Array.from(chart.querySelectorAll(".breakdown"));
+    if (!breakdowns.length) return;
+
+    // Totals for THIS chart instance
+    const totals = breakdowns.map((b) => {
+      const totalEl = b.querySelector(".breakdown_total");
+      const total = totalEl ? Number(totalEl.textContent.trim()) : NaN;
+      return Number.isFinite(total) ? total : 0;
+    });
+
+    const maxTotal = Math.max(...totals, 1);
+    const maxBarHeight = 210;
+
+    breakdowns.forEach((breakdown) => {
+      const bar = breakdown.querySelector(".breakdown_bar");
+      const totalEl = breakdown.querySelector(".breakdown_total");
+      if (!bar || !totalEl) return;
+
+      const total = Number(totalEl.textContent.trim()) || 0;
+      const base = Number(bar.dataset.base || 0);
+      const overtime = Number(bar.dataset.overtime || 0);
+      const incentives = Number(bar.dataset.incentives || 0);
+
+      // Fallback to computed total if total is missing/0
+      const computedTotal = base + overtime + incentives;
+      const safeTotal = total > 0 ? total : computedTotal;
+
+      // Scale bar height
+      const scaledHeight = Math.max(18, Math.round((safeTotal / maxTotal) * maxBarHeight));
+      bar.style.height = `${scaledHeight}px`;
+
+      // Build segments
+      bar.querySelectorAll(".seg").forEach((n) => n.remove());
+
+      const denom = safeTotal || 1;
+      const baseH = Math.round((base / denom) * scaledHeight);
+      const overtimeH = Math.round((overtime / denom) * scaledHeight);
+      const used = baseH + overtimeH;
+      const incentivesH = Math.max(0, scaledHeight - used);
+
+      const segBase = document.createElement("span");
+      segBase.className = "seg base";
+      segBase.style.height = `${baseH}px`;
+
+      const segOver = document.createElement("span");
+      segOver.className = "seg overtime";
+      segOver.style.height = `${overtimeH}px`;
+
+      const segInc = document.createElement("span");
+      segInc.className = "seg incentives";
+      segInc.style.height = `${incentivesH}px`;
+
+      bar.appendChild(segBase);
+      bar.appendChild(segOver);
+      bar.appendChild(segInc);
+    });
+
+    // Year switching scoped to THIS component
+    const yearsWrap = component.querySelector(".breakdown_years");
+    if (yearsWrap && !yearsWrap.dataset.bound) {
+      yearsWrap.dataset.bound = "1";
+
+      yearsWrap.addEventListener("click", (e) => {
+        const btn = e.target.closest(".year_chip");
+        if (!btn) return;
+
+        yearsWrap.querySelectorAll(".year_chip").forEach((b) => b.classList.remove("is-active"));
+        btn.classList.add("is-active");
+
+        const year = btn.dataset.year;
+
+        // Hook for later API integration:
+        // fetch(`/api/payroll-breakdown?year=${year}`)
+        //   .then(r => r.json())
+        //   .then(data => { updateComponent(component, data); initPayrollBreakdownCharts(component); });
+
+        console.log("Selected year (component-scoped):", year);
+
+        // If you swapped the data attributes/totals for that year, re-init just this component:
+        initPayrollBreakdownCharts(component);
+      });
+    }
+  });
+}
+
+// Make callable from router init if you want
+window.wireEmployeesTable = wireEmployeesTable;
+window.initPayrollBreakdownCharts = initPayrollBreakdownCharts;
+
+// Run on load (or call from overview route)
 document.addEventListener("DOMContentLoaded", () => {
     initReports();
     wireEmployeesTable();
+    initPayrollBreakdownCharts();
 });

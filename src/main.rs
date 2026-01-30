@@ -2,7 +2,11 @@ pub mod models;
 use std::net::SocketAddr;
 
 use crate::models::views::{HtmlTemplate, IndexTemplate};
-use axum::{response::IntoResponse, routing::get, Router};
+use axum::{
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
+};
 use models::views::Error404Template;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -36,6 +40,10 @@ async fn index_handler() -> impl IntoResponse {
     };
     HtmlTemplate(index)
 }
+
+// async fn test() -> Html<&'static str> {
+//     Html("<h1>Hello, World: Super like my man cat local time 899!</h1>")
+// }
 
 async fn fallback_handler() -> impl IntoResponse {
     let not_found = Error404Template;
