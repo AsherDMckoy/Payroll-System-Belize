@@ -142,7 +142,8 @@ async function loadPayrollBreakdown(year) {
       }
     }
 
-    initPayrollBreakdownCharts(component);
+    // Use document as root so the chart is found (querySelectorAll only matches descendants)
+    initPayrollBreakdownCharts();
   } catch (err) {
     console.error("loadPayrollBreakdown:", err);
   }
