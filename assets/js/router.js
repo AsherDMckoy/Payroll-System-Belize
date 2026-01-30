@@ -47,7 +47,7 @@ const routes = {
   },
   "/employees": {
     view: () =>
-      updateView("/employees", "employees-section", window.wireEmployeesTable),
+      updateView("/employees", "employees-section", window.initEmployeesPage),
     description: "Employees page of the payroll app",
   },
   "/reports": {
@@ -71,7 +71,8 @@ const handleLocation = async () => {
   route.view();
 };
 
-handleLocation();
+window.handleLocation = handleLocation;
+// Initial route runs from app.js DOMContentLoaded so initOverviewPage etc. are defined
 
 // --------- Link Interception (SPA) ---------
 document.body.addEventListener("click", (event) => {

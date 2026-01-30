@@ -7,6 +7,222 @@ document.documentElement.style.setProperty(
 );
 
 // =============================
+// API-driven data (JSON from Rust backend)
+// =============================
+
+function formatCompactCurrency(numStr) {
+  const n = parseInt(numStr, 10);
+  if (!Number.isFinite(n)) return "—";
+  if (n >= 1000000) return "$" + (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return "$" + (n / 1000).toFixed(0) + "K";
+  return "$" + n;
+}
+
+function formatCurrency(num) {
+  const n = parseFloat(num);
+  if (!Number.isFinite(n)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+async function loadDashboardOverview() {
+  const grid = document.getElementById("dashboard-overview-grid");
+  const tbody = document.getElementById("recent-activity-tbody");
+  if (!grid || !tbody) return;
+
+  try {
+    const res = await fetch("/api/dashboard/overview");
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+
+    grid.querySelector(".payroll_total [data-dashboard-value]").textContent =
+      formatCompactCurrency(data.payroll_total);
+    grid.querySelector(".payroll_total [data-dashboard-sublabel]").textContent =
+      data.payroll_label || "—";
+
+    grid.querySelector(".employee_total [data-dashboard-value]").textContent =
+      String(data.employee_count ?? "—");
+    grid.querySelector(".employee_total [data-dashboard-sublabel]").textContent =
+      data.employee_delta || "—";
+
+    grid.querySelector(".deduction_total [data-dashboard-value]").textContent =
+      formatCompactCurrency(data.deductions_total);
+    grid.querySelector(".deduction_total [data-dashboard-sublabel]").textContent =
+      data.deductions_label || "—";
+
+    grid.querySelector(".contribution_total [data-dashboard-value]").textContent =
+      formatCurrency(data.contributions_total);
+    grid.querySelector(".contribution_total [data-dashboard-sublabel]").textContent =
+      data.contributions_label || "—";
+
+    const pp = data.pay_period || {};
+    const daysEl = grid.querySelector("[data-pay-period-days-value]");
+    const hoursEl = grid.querySelector("[data-pay-period-hours-value]");
+    const labelEl = grid.querySelector("[data-pay-period-label]");
+    if (daysEl) daysEl.textContent = pp.working_days ?? "—";
+    if (hoursEl) hoursEl.textContent = pp.working_hours ?? "—";
+    if (labelEl) labelEl.textContent = pp.label ?? "—";
+
+    tbody.innerHTML = "";
+    (data.recent_activity || []).forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(row.employee_name)}</td>
+        <td>${escapeHtml(row.position)}</td>
+        <td>${escapeHtml(row.salary_paid)}</td>
+        <td>${escapeHtml(row.status)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    if (tbody.children.length === 0) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td colspan=\"4\">No recent activity</td>";
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    console.error("loadDashboardOverview:", err);
+    if (tbody) {
+      tbody.innerHTML = "<tr><td colspan=\"4\">Failed to load</td></tr>";
+    }
+  }
+}
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function loadPayrollBreakdown(year) {
+  const component = document.getElementById("payroll-breakdown-chart");
+  if (!component) return;
+
+  try {
+    const res = await fetch("/api/payroll-breakdown?year=" + encodeURIComponent(year || 2026));
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+
+    const chart = component.querySelector(".breakdowns_chart");
+    if (!chart) return;
+
+    const breakdowns = Array.from(chart.querySelectorAll(".breakdown"));
+    const months = data.months || [];
+    const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    for (let i = 0; i < 12; i++) {
+      const m = months[i];
+      const b = breakdowns[i];
+      if (!b) continue;
+
+      const total = m ? m.total : 0;
+      const base = m ? m.base : 0;
+      const overtime = m ? m.overtime : 0;
+      const incentives = m ? m.incentives : 0;
+
+      const totalEl = b.querySelector(".breakdown_total");
+      const bar = b.querySelector(".breakdown_bar");
+      const monthEl = b.querySelector(".breakdown_month");
+      if (totalEl) totalEl.textContent = String(total);
+      if (bar) {
+        bar.dataset.base = String(base);
+        bar.dataset.overtime = String(overtime);
+        bar.dataset.incentives = String(incentives);
+      }
+      if (monthEl) monthEl.textContent = m ? m.label : monthLabels[i] || "";
+
+      const tooltipList = b.querySelectorAll(".tooltip_list_item .tooltip_breakdown_value");
+      if (tooltipList.length >= 3) {
+        tooltipList[0].textContent = String(base);
+        tooltipList[1].textContent = String(overtime);
+        tooltipList[2].textContent = String(incentives);
+      }
+    }
+
+    initPayrollBreakdownCharts(component);
+  } catch (err) {
+    console.error("loadPayrollBreakdown:", err);
+  }
+}
+
+async function loadEmployees() {
+  const summary = document.getElementById("employees-summary");
+  const tbody = document.getElementById("employees-tbody");
+  if (!tbody) return;
+
+  try {
+    const res = await fetch("/api/employees");
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+
+    if (summary) {
+      const totalEl = summary.querySelector("[data-employees-total]");
+      const activeEl = summary.querySelector("[data-employees-active]");
+      const inactiveEl = summary.querySelector("[data-employees-inactive]");
+      if (totalEl) totalEl.textContent = String(data.total_employees ?? "—");
+      if (activeEl) activeEl.textContent = String(data.active_employees ?? "—");
+      if (inactiveEl) inactiveEl.textContent = String(data.inactive_employees ?? "—");
+    }
+
+    tbody.innerHTML = "";
+    (data.employees || []).forEach((emp) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(emp.name)}</td>
+        <td>${escapeHtml(emp.position)}</td>
+        <td>${escapeHtml(emp.department)}</td>
+        <td class="is-numeric">${formatCurrency(emp.net_salary)}</td>
+        <td class="is-numeric">${formatCurrency(emp.contributions)}</td>
+        <td class="is-numeric">${formatCurrency(emp.deductions)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    if (tbody.children.length === 0) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td colspan=\"6\">No employees</td>";
+      tbody.appendChild(tr);
+    }
+
+    wireEmployeesTable();
+  } catch (err) {
+    console.error("loadEmployees:", err);
+    tbody.innerHTML = "<tr><td colspan=\"6\">Failed to load</td></tr>";
+  }
+}
+
+function initOverviewPage() {
+  loadDashboardOverview();
+  const chart = document.getElementById("payroll-breakdown-chart");
+  const activeYearBtn = chart && chart.querySelector(".year_chip.is-active");
+  const year = activeYearBtn ? (activeYearBtn.dataset.year || "2026") : "2026";
+  loadPayrollBreakdown(year);
+}
+
+function initEmployeesPage() {
+  loadEmployees();
+}
+
+// Reports page init (no API yet)
+function initReportsPage() {
+  initReports();
+}
+
+// Payroll process page init (no API yet)
+function initPayrollPage() {
+  // placeholder
+}
+
+// Expose for router
+window.initOverviewPage = initOverviewPage;
+window.initEmployeesPage = initEmployeesPage;
+window.initReportsPage = initReportsPage;
+window.initPayrollPage = initPayrollPage;
+window.loadPayrollBreakdown = loadPayrollBreakdown;
+
+// =============================
 // Reports UI (frontend-only)
 // =============================
 
@@ -569,16 +785,11 @@ function initPayrollBreakdownCharts(root = document) {
         btn.classList.add("is-active");
 
         const year = btn.dataset.year;
-
-        // Hook for later API integration:
-        // fetch(`/api/payroll-breakdown?year=${year}`)
-        //   .then(r => r.json())
-        //   .then(data => { updateComponent(component, data); initPayrollBreakdownCharts(component); });
-
-        console.log("Selected year (component-scoped):", year);
-
-        // If you swapped the data attributes/totals for that year, re-init just this component:
-        initPayrollBreakdownCharts(component);
+        if (typeof window.loadPayrollBreakdown === "function") {
+          window.loadPayrollBreakdown(year);
+        } else {
+          initPayrollBreakdownCharts(component);
+        }
       });
     }
   });
@@ -588,9 +799,8 @@ function initPayrollBreakdownCharts(root = document) {
 window.wireEmployeesTable = wireEmployeesTable;
 window.initPayrollBreakdownCharts = initPayrollBreakdownCharts;
 
-// Run on load (or call from overview route)
+// Run on load; router handles section-specific init (initOverviewPage, initEmployeesPage, etc.)
 document.addEventListener("DOMContentLoaded", () => {
-    initReports();
-    wireEmployeesTable();
-    initPayrollBreakdownCharts();
+  initReports();
+  if (window.handleLocation) window.handleLocation();
 });
