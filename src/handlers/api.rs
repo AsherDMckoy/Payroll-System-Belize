@@ -34,9 +34,10 @@ struct EmployeeListDbRow {
     employment_type: String,
     base_salary: Option<Decimal>,
     hourly_rate: Option<Decimal>,
+    latest_gross_pay: Option<Decimal>,
     latest_net_pay: Option<Decimal>,
     latest_contributions: Option<Decimal>,
-    latest_deductions: Option<Decimal>,
+    latest_tax_paid: Option<Decimal>,
 }
 
 #[derive(FromRow)]
@@ -67,8 +68,8 @@ struct PayPeriodRow {
 #[derive(FromRow)]
 struct PayPeriodTotalsRow {
     base_salary: Decimal,
-    overtime: Decimal,
-    incentives: Decimal,
+    tax_paid: Decimal,
+    company_contributions: Decimal,
     total: Decimal,
 }
 
@@ -77,8 +78,8 @@ struct MonthlyBreakdownDbRow {
     month: i32,
     total: Decimal,
     base: Decimal,
-    overtime: Decimal,
-    incentives: Decimal,
+    tax_paid: Decimal,
+    company_contributions: Decimal,
 }
 
 /// GET /api/dashboard/overview
@@ -93,7 +94,7 @@ pub async fn dashboard_overview(
         r#"
         SELECT
             COALESCE(SUM(pr.gross_pay), 0) AS payroll_total,
-            COALESCE(SUM(pr.total_deductions), 0) AS deductions_total,
+            COALESCE(SUM(pr.tax_deduction), 0) AS deductions_total,
             COALESCE(SUM(pr.employee_savings + pr.company_match), 0) AS contributions_total
         FROM payroll_runs pr
         INNER JOIN payroll_periods pp ON pp.id = pr.payroll_period_id
@@ -148,9 +149,17 @@ pub async fn dashboard_overview(
 
     let focus_period = sqlx::query_as::<_, PayPeriodRow>(
         r#"
-        SELECT id, start_date, end_date, pay_date, status
-        FROM payroll_periods
+        SELECT
+            pp.id,
+            pp.start_date,
+            pp.end_date,
+            pp.pay_date,
+            pp.status
+        FROM payroll_periods pp
+        LEFT JOIN payroll_runs pr ON pr.payroll_period_id = pp.id
+        GROUP BY pp.id, pp.start_date, pp.end_date, pp.pay_date, pp.status
         ORDER BY
+            CASE WHEN COUNT(pr.id) > 0 THEN 0 ELSE 1 END,
             CASE status
                 WHEN 'processing' THEN 0
                 WHEN 'approved' THEN 1
@@ -171,8 +180,8 @@ pub async fn dashboard_overview(
             r#"
             SELECT
                 COALESCE(SUM(regular_pay), 0) AS base_salary,
-                COALESCE(SUM(overtime_pay), 0) AS overtime,
-                COALESCE(SUM(bonuses), 0) AS incentives,
+                COALESCE(SUM(tax_deduction), 0) AS tax_paid,
+                COALESCE(SUM(company_match), 0) AS company_contributions,
                 COALESCE(SUM(gross_pay), 0) AS total
             FROM payroll_runs
             WHERE payroll_period_id = $1
@@ -200,8 +209,8 @@ pub async fn dashboard_overview(
                     period.pay_date.month(),
                 ),
                 base_salary: format_money_label(period_totals.base_salary),
-                overtime: format_money_label(period_totals.overtime),
-                incentives: format_money_label(period_totals.incentives),
+                tax_paid: format_money_label(period_totals.tax_paid),
+                company_contributions: format_money_label(period_totals.company_contributions),
                 total: format_money_label(period_totals.total),
             },
         }
@@ -217,8 +226,8 @@ pub async fn dashboard_overview(
                 day_of_month: 0,
                 total_days_in_period: 0,
                 base_salary: "$0.00".to_string(),
-                overtime: "$0.00".to_string(),
-                incentives: "$0.00".to_string(),
+                tax_paid: "$0.00".to_string(),
+                company_contributions: "$0.00".to_string(),
                 total: "$0.00".to_string(),
             },
         }
@@ -267,9 +276,10 @@ pub async fn employees_list(State(pool): State<PgPool>) -> ApiResult<Json<Employ
             e.employment_type,
             c.base_salary,
             c.hourly_rate,
+            lr.gross_pay AS latest_gross_pay,
             lr.net_pay AS latest_net_pay,
             lr.employee_savings AS latest_contributions,
-            lr.total_deductions AS latest_deductions
+            lr.tax_deduction AS latest_tax_paid
         FROM employees e
         LEFT JOIN departments d
             ON d.id = e.department_id
@@ -278,9 +288,10 @@ pub async fn employees_list(State(pool): State<PgPool>) -> ApiResult<Json<Employ
             AND c.is_current = true
         LEFT JOIN LATERAL (
             SELECT
+                pr.gross_pay,
                 pr.net_pay,
                 pr.employee_savings,
-                pr.total_deductions
+                pr.tax_deduction
             FROM payroll_runs pr
             LEFT JOIN payroll_periods pp
                 ON pp.id = pr.payroll_period_id
@@ -302,15 +313,18 @@ pub async fn employees_list(State(pool): State<PgPool>) -> ApiResult<Json<Employ
     let employees = rows
         .into_iter()
         .map(|row| {
+            let fallback_gross =
+                estimated_gross_pay(&row.employment_type, row.base_salary, row.hourly_rate);
             let fallback_net =
                 estimated_net_pay(&row.employment_type, row.base_salary, row.hourly_rate);
             EmployeeRow {
                 name: format!("{} {}", row.first_name, row.last_name),
                 position: row.position.unwrap_or_else(|| "Unassigned".to_string()),
                 department: row.department.unwrap_or_else(|| "Unassigned".to_string()),
+                gross_salary: decimal_to_f64(row.latest_gross_pay.unwrap_or(fallback_gross)),
                 net_salary: decimal_to_f64(row.latest_net_pay.unwrap_or(fallback_net)),
                 contributions: decimal_to_f64(row.latest_contributions.unwrap_or(Decimal::ZERO)),
-                deductions: decimal_to_f64(row.latest_deductions.unwrap_or(Decimal::ZERO)),
+                tax_paid: decimal_to_f64(row.latest_tax_paid.unwrap_or(Decimal::ZERO)),
             }
         })
         .collect();
@@ -334,24 +348,13 @@ pub async fn payroll_breakdown(
     Query(q): Query<PayrollBreakdownQuery>,
 ) -> ApiResult<Json<PayrollBreakdownResponse>> {
     let fallback_year = Utc::now().year();
-    let latest_year_with_data = latest_breakdown_year(&pool).await?;
     let requested_year = match q.year {
         Some(y) => i32::try_from(y).unwrap_or(fallback_year),
-        None => latest_year_with_data.unwrap_or(fallback_year),
+        None => fallback_year,
     };
 
-    let mut year_i32 = requested_year;
-    let mut rows = fetch_monthly_breakdown_rows(&pool, year_i32).await?;
-
-    // If requested year has no data, use the most recent year with data.
-    if rows.is_empty() {
-        if let Some(latest_year) = latest_year_with_data {
-            if latest_year != year_i32 {
-                year_i32 = latest_year;
-                rows = fetch_monthly_breakdown_rows(&pool, year_i32).await?;
-            }
-        }
-    }
+    let year_i32 = requested_year;
+    let rows = fetch_monthly_breakdown_rows(&pool, year_i32).await?;
 
     let by_month: HashMap<i32, MonthlyBreakdownDbRow> =
         rows.into_iter().map(|row| (row.month, row)).collect();
@@ -366,10 +369,12 @@ pub async fn payroll_breakdown(
         months.push(MonthBreakdown {
             month: m as u32,
             label: labels[(m - 1) as usize].to_string(),
-            total: entry.map(|e| decimal_to_u32(e.total)).unwrap_or(0),
-            base: entry.map(|e| decimal_to_u32(e.base)).unwrap_or(0),
-            overtime: entry.map(|e| decimal_to_u32(e.overtime)).unwrap_or(0),
-            incentives: entry.map(|e| decimal_to_u32(e.incentives)).unwrap_or(0),
+            total: entry.map(|e| decimal_to_f64(e.total)).unwrap_or(0.0),
+            base: entry.map(|e| decimal_to_f64(e.base)).unwrap_or(0.0),
+            tax_paid: entry.map(|e| decimal_to_f64(e.tax_paid)).unwrap_or(0.0),
+            company_contributions: entry
+                .map(|e| decimal_to_f64(e.company_contributions))
+                .unwrap_or(0.0),
         });
     }
 
@@ -383,19 +388,6 @@ pub async fn payroll_breakdown(
     }))
 }
 
-async fn latest_breakdown_year(pool: &PgPool) -> Result<Option<i32>, (StatusCode, String)> {
-    sqlx::query_scalar::<_, Option<i32>>(
-        r#"
-        SELECT EXTRACT(YEAR FROM MAX(pp.pay_date))::INT
-        FROM payroll_periods pp
-        INNER JOIN payroll_runs pr ON pr.payroll_period_id = pp.id
-        "#,
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(internal_error)
-}
-
 async fn fetch_monthly_breakdown_rows(
     pool: &PgPool,
     year: i32,
@@ -404,10 +396,10 @@ async fn fetch_monthly_breakdown_rows(
         r#"
         SELECT
             EXTRACT(MONTH FROM pp.pay_date)::INT AS month,
-            COALESCE(SUM(pr.gross_pay), 0) AS total,
+            COALESCE(SUM(pr.regular_pay + pr.tax_deduction + pr.company_match), 0) AS total,
             COALESCE(SUM(pr.regular_pay), 0) AS base,
-            COALESCE(SUM(pr.overtime_pay), 0) AS overtime,
-            COALESCE(SUM(pr.bonuses), 0) AS incentives
+            COALESCE(SUM(pr.tax_deduction), 0) AS tax_paid,
+            COALESCE(SUM(pr.company_match), 0) AS company_contributions
         FROM payroll_periods pp
         INNER JOIN payroll_runs pr ON pr.payroll_period_id = pp.id
         WHERE EXTRACT(YEAR FROM pp.pay_date) = $1
@@ -565,6 +557,21 @@ fn estimated_net_pay(
     (gross_biweekly - tax).max(Decimal::ZERO).round_dp(2)
 }
 
+fn estimated_gross_pay(
+    employment_type: &str,
+    base_salary: Option<Decimal>,
+    hourly_rate: Option<Decimal>,
+) -> Decimal {
+    let periods_per_year = Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
+    match employment_type {
+        "salaried" => base_salary.unwrap_or(Decimal::ZERO) / periods_per_year,
+        "hourly" => hourly_rate.unwrap_or(Decimal::ZERO) * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD),
+        "contractor" => base_salary.unwrap_or(Decimal::ZERO),
+        _ => Decimal::ZERO,
+    }
+    .round_dp(2)
+}
+
 fn biweekly_tax(annualized_income: Decimal) -> Decimal {
     let allowance = Decimal::from(TAX_FREE_ALLOWANCE_ANNUAL);
     let taxable_income = if annualized_income > allowance {
@@ -578,17 +585,6 @@ fn biweekly_tax(annualized_income: Decimal) -> Decimal {
 
 fn decimal_to_f64(value: Decimal) -> f64 {
     value.to_string().parse::<f64>().unwrap_or(0.0)
-}
-
-fn decimal_to_u32(value: Decimal) -> u32 {
-    let n = decimal_to_f64(value).round();
-    if n <= 0.0 {
-        0
-    } else if n >= u32::MAX as f64 {
-        u32::MAX
-    } else {
-        n as u32
-    }
 }
 
 fn internal_error(err: sqlx::Error) -> (StatusCode, String) {

@@ -25,10 +25,10 @@ async fn main() -> Result<(), std::io::Error> {
         .await
         .expect("Failed to create database pool");
     println!("✓ Database connected!");
-    db::run_migrations(&pool)
-        .await
-        .expect("Failed to run database migrations");
-    println!("✓ Migrations complete!");
+    //db::run_migrations(&pool)
+    //    .await
+    //    .expect("Failed to run database migrations");
+    //println!("✓ Migrations complete!");
 
     let app = Router::new()
         .route("/", get(index_handler))

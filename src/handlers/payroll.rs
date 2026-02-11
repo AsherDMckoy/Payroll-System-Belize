@@ -347,27 +347,24 @@ pub async fn generate_payroll(
             .map(|t| t.overtime_hours)
             .unwrap_or(Decimal::ZERO);
 
-        let (regular_pay, overtime_pay, annualized_income) = match employee.employment_type.as_str()
-        {
+        let (regular_pay, overtime_pay) = match employee.employment_type.as_str() {
             "salaried" => {
                 let annual_salary = employee.base_salary.unwrap_or(Decimal::ZERO);
                 let regular = annual_salary / periods_per_year;
-                (regular, Decimal::ZERO, annual_salary)
+                (regular, Decimal::ZERO)
             }
             "hourly" => {
                 let hourly_rate = employee.hourly_rate.unwrap_or(Decimal::ZERO);
                 let regular = regular_hours * hourly_rate;
                 let overtime = overtime_hours * hourly_rate * overtime_multiplier;
-                let annualized = (regular + overtime) * periods_per_year;
-                (regular, overtime, annualized)
+                (regular, overtime)
             }
             "contractor" => {
                 // In current schema/sample data this is stored as biweekly amount.
                 let biweekly_amount = employee.base_salary.unwrap_or(Decimal::ZERO);
-                let annualized = biweekly_amount * periods_per_year;
-                (biweekly_amount, Decimal::ZERO, annualized)
+                (biweekly_amount, Decimal::ZERO)
             }
-            _ => (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+            _ => (Decimal::ZERO, Decimal::ZERO),
         };
 
         let adjustment_sums = sqlx::query_as::<_, AdjustmentSumsRow>(
@@ -403,7 +400,7 @@ pub async fn generate_payroll(
         .map_err(internal_error)?;
 
         let gross_pay = money(regular_pay + overtime_pay + adjustment_sums.earnings_adjustments);
-        let tax_deduction = biweekly_tax(annualized_income);
+        let tax_deduction = biweekly_tax(gross_pay);
         let employee_savings = money(savings);
         let company_match = money(employee_savings.min(Decimal::from(COMPANY_MATCH_CAP)));
 
@@ -476,7 +473,8 @@ fn money(value: Decimal) -> Decimal {
     value.round_dp(2)
 }
 
-fn biweekly_tax(annualized_income: Decimal) -> Decimal {
+fn biweekly_tax(gross_biweekly: Decimal) -> Decimal {
+    let annualized_income = gross_biweekly * Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
     let allowance = Decimal::from(TAX_FREE_ALLOWANCE_ANNUAL);
     let taxable_income = if annualized_income > allowance {
         annualized_income - allowance
@@ -493,24 +491,22 @@ fn estimated_net_pay(
     hourly_rate: Option<Decimal>,
 ) -> Decimal {
     let periods_per_year = Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
-    let (gross_biweekly, annualized_income) = match employment_type {
+    let gross_biweekly = match employment_type {
         "salaried" => {
             let annual = base_salary.unwrap_or(Decimal::ZERO);
-            (annual / periods_per_year, annual)
+            annual / periods_per_year
         }
         "hourly" => {
             let hourly = hourly_rate.unwrap_or(Decimal::ZERO);
-            let gross = hourly * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD);
-            (gross, gross * periods_per_year)
+            hourly * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD)
         }
         "contractor" => {
-            let biweekly = base_salary.unwrap_or(Decimal::ZERO);
-            (biweekly, biweekly * periods_per_year)
+            base_salary.unwrap_or(Decimal::ZERO)
         }
-        _ => (Decimal::ZERO, Decimal::ZERO),
+        _ => Decimal::ZERO,
     };
 
-    (gross_biweekly - biweekly_tax(annualized_income))
+    (gross_biweekly - biweekly_tax(gross_biweekly))
         .max(Decimal::ZERO)
         .round_dp(2)
 }

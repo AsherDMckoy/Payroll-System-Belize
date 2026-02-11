@@ -28,6 +28,42 @@ function formatCurrency(num) {
   }).format(n);
 }
 
+function formatBreakdownNumber(num) {
+  const n = Number(num);
+  if (!Number.isFinite(n)) return "0.00";
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+const CURRENT_YEAR = new Date().getFullYear();
+let activePayrollBreakdownYear = CURRENT_YEAR;
+
+function normalizeBreakdownYear(value) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return CURRENT_YEAR;
+  return Math.min(parsed, CURRENT_YEAR);
+}
+
+function updateBreakdownYearControls(component, year) {
+  const yearsWrap = component.querySelector(".breakdown_years");
+  if (!yearsWrap) return;
+
+  const yearValue = normalizeBreakdownYear(year);
+  const yearBtn = yearsWrap.querySelector("[data-breakdown-year]");
+  const nextBtn = yearsWrap.querySelector("[data-year-nav=\"next\"]");
+
+  if (yearBtn) {
+    yearBtn.textContent = String(yearValue);
+    yearBtn.dataset.year = String(yearValue);
+  }
+
+  if (nextBtn) {
+    nextBtn.disabled = yearValue >= CURRENT_YEAR;
+  }
+}
+
 function applyDashboardOverviewData(data, grid, tbody) {
   if (!grid || !tbody) return;
 
@@ -83,13 +119,15 @@ function applyDashboardOverviewData(data, grid, tbody) {
     const breakdownSection = grid.querySelector("[data-payday-breakdown]");
     if (breakdownSection) {
       const baseEl = breakdownSection.querySelector("[data-payday-base]");
-      const overtimeEl = breakdownSection.querySelector("[data-payday-overtime]");
-      const incentivesEl = breakdownSection.querySelector("[data-payday-incentives]");
+      const taxEl = breakdownSection.querySelector("[data-payday-tax]");
+      const contributionsEl = breakdownSection.querySelector("[data-payday-contributions]");
       const totalEl = breakdownSection.querySelector("[data-payday-total]");
 
       if (baseEl) baseEl.textContent = pp.payday.base_salary || "—";
-      if (overtimeEl) overtimeEl.textContent = pp.payday.overtime || "—";
-      if (incentivesEl) incentivesEl.textContent = pp.payday.incentives || "—";
+      if (taxEl) taxEl.textContent = pp.payday.tax_paid || "—";
+      if (contributionsEl) {
+        contributionsEl.textContent = pp.payday.company_contributions || "—";
+      }
       if (totalEl) totalEl.textContent = pp.payday.total || "—";
 
       breakdownSection.hidden = false;
@@ -165,10 +203,15 @@ async function loadPayrollBreakdown(year) {
   if (!components.length) return;
 
   try {
-    const query = year ? `?year=${encodeURIComponent(year)}` : "";
+    const targetYear = normalizeBreakdownYear(
+      year ?? activePayrollBreakdownYear,
+    );
+    const query = `?year=${encodeURIComponent(targetYear)}`;
     const res = await fetch(`/api/payroll-breakdown${query}`);
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
+    const resolvedYear = normalizeBreakdownYear(data.year ?? targetYear);
+    activePayrollBreakdownYear = resolvedYear;
 
     const months = data.months || [];
     const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -186,8 +229,8 @@ async function loadPayrollBreakdown(year) {
 
         const total = m ? m.total : 0;
         const base = m ? m.base : 0;
-        const overtime = m ? m.overtime : 0;
-        const incentives = m ? m.incentives : 0;
+        const taxPaid = m ? m.tax_paid : 0;
+        const companyContributions = m ? m.company_contributions : 0;
 
         const totalEl = b.querySelector(".breakdown_total");
         const bar = b.querySelector(".breakdown_bar");
@@ -195,26 +238,20 @@ async function loadPayrollBreakdown(year) {
         if (totalEl) totalEl.textContent = String(total);
         if (bar) {
           bar.dataset.base = String(base);
-          bar.dataset.overtime = String(overtime);
-          bar.dataset.incentives = String(incentives);
+          bar.dataset.tax = String(taxPaid);
+          bar.dataset.contributions = String(companyContributions);
         }
         if (monthEl) monthEl.textContent = m ? m.label : monthLabels[i] || "";
 
         const tooltipList = b.querySelectorAll(".tooltip_list_item .tooltip_breakdown_value");
         if (tooltipList.length >= 3) {
-          tooltipList[0].textContent = String(base);
-          tooltipList[1].textContent = String(overtime);
-          tooltipList[2].textContent = String(incentives);
+          tooltipList[0].textContent = formatBreakdownNumber(base);
+          tooltipList[1].textContent = formatBreakdownNumber(taxPaid);
+          tooltipList[2].textContent = formatBreakdownNumber(companyContributions);
         }
       }
 
-      const yearsWrap = component.querySelector(".breakdown_years");
-      if (yearsWrap && data.year) {
-        yearsWrap.querySelectorAll(".year_chip").forEach((btn) => {
-          const isActive = String(btn.dataset.year || "") === String(data.year);
-          btn.classList.toggle("is-active", isActive);
-        });
-      }
+      updateBreakdownYearControls(component, resolvedYear);
     });
 
     initPayrollBreakdownCharts();
@@ -247,13 +284,14 @@ async function loadEmployees() {
     tbody.innerHTML = "";
     (data.employees || []).forEach((emp) => {
       const tr = document.createElement("tr");
+      tr.dataset.grossSalary = String(emp.gross_salary ?? "");
       tr.innerHTML = `
         <td>${escapeHtml(emp.name)}</td>
         <td>${escapeHtml(emp.position)}</td>
         <td>${escapeHtml(emp.department)}</td>
         <td class="is-numeric">${formatCurrency(emp.net_salary)}</td>
         <td class="is-numeric">${formatCurrency(emp.contributions)}</td>
-        <td class="is-numeric">${formatCurrency(emp.deductions)}</td>
+        <td class="is-numeric">${formatCurrency(emp.tax_paid)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -272,10 +310,7 @@ async function loadEmployees() {
 
 function initOverviewPage() {
   loadDashboardOverview();
-  const chart = document.querySelector('.payroll_breakdown[data-chart="payroll-breakdown"]');
-  const activeYearBtn = chart && chart.querySelector(".year_chip.is-active");
-  const year = activeYearBtn ? (activeYearBtn.dataset.year || null) : null;
-  loadPayrollBreakdown(year);
+  loadPayrollBreakdown(activePayrollBreakdownYear);
 }
 
 function initEmployeesPage() {
@@ -403,10 +438,7 @@ function wirePayrollActions() {
 
 // Payroll process page init – populate chart so it works when landing directly on /payroll
 async function initPayrollPage() {
-  const chart = document.querySelector('.payroll_breakdown[data-chart="payroll-breakdown"]');
-  const activeYearBtn = chart && chart.querySelector(".year_chip.is-active");
-  const year = activeYearBtn ? (activeYearBtn.dataset.year || null) : null;
-  loadPayrollBreakdown(year);
+  loadPayrollBreakdown(activePayrollBreakdownYear);
   wirePayrollActions();
   const overviewData = await loadDashboardOverview();
   if (overviewData) applyPayrollPageSummaryCards(overviewData);
@@ -1159,7 +1191,11 @@ function wireEmployeesTable() {
 
     const netNum = parseMoney(cells[3].textContent);
     const contribNum = parseMoney(cells[4].textContent);
-    const deductNum = parseMoney(cells[5].textContent);
+    const taxNum = parseMoney(cells[5].textContent);
+    const grossNumFromRow = Number(row.dataset.grossSalary);
+    const grossNum = Number.isFinite(grossNumFromRow)
+      ? grossNumFromRow
+      : (Number.isFinite(netNum) && Number.isFinite(taxNum) ? netNum + Math.abs(taxNum) : null);
 
     // Selected row highlight
     table.querySelectorAll("tr.is-selected").forEach((r) => r.classList.remove("is-selected"));
@@ -1175,14 +1211,13 @@ function wireEmployeesTable() {
     if (roleEl) roleEl.textContent = `${position} • ${department}`;
 
     // Populate metrics (labels must match your card labels exactly)
+    setMetricByLabel(card, "Gross Salary", grossNum !== null ? formatMoney(grossNum) : "—");
     setMetricByLabel(card, "Net Salary", netNum !== null ? formatMoney(netNum) : "—");
     setMetricByLabel(card, "Contributions", contribNum !== null ? formatMoney(contribNum) : "—");
-
-    // Show deductions as negative in the card
-    if (deductNum !== null) {
-      setMetricByLabel(card, "Deductions", `-${formatMoney(Math.abs(deductNum))}`, "negative");
+    if (taxNum !== null) {
+      setMetricByLabel(card, "Tax Paid", `-${formatMoney(Math.abs(taxNum))}`, "negative");
     } else {
-      setMetricByLabel(card, "Deductions", "—", "negative");
+      setMetricByLabel(card, "Tax Paid", "—", "negative");
     }
   });
 
@@ -1231,11 +1266,11 @@ function initPayrollBreakdownCharts(root = document) {
 
       const total = Number(totalEl.textContent.trim()) || 0;
       const base = Number(bar.dataset.base || 0);
-      const overtime = Number(bar.dataset.overtime || 0);
-      const incentives = Number(bar.dataset.incentives || 0);
+      const taxPaid = Number(bar.dataset.tax || 0);
+      const companyContributions = Number(bar.dataset.contributions || 0);
 
       // Fallback to computed total if total is missing/0
-      const computedTotal = base + overtime + incentives;
+      const computedTotal = base + taxPaid + companyContributions;
       const safeTotal = total > 0 ? total : computedTotal;
 
       // Scale bar height
@@ -1247,44 +1282,45 @@ function initPayrollBreakdownCharts(root = document) {
 
       const denom = safeTotal || 1;
       const baseH = Math.round((base / denom) * scaledHeight);
-      const overtimeH = Math.round((overtime / denom) * scaledHeight);
-      const used = baseH + overtimeH;
-      const incentivesH = Math.max(0, scaledHeight - used);
+      const taxH = Math.round((taxPaid / denom) * scaledHeight);
+      const used = baseH + taxH;
+      const contributionsH = Math.max(0, scaledHeight - used);
 
       const segBase = document.createElement("span");
       segBase.className = "seg base";
       segBase.style.height = `${baseH}px`;
 
-      const segOver = document.createElement("span");
-      segOver.className = "seg overtime";
-      segOver.style.height = `${overtimeH}px`;
+      const segTax = document.createElement("span");
+      segTax.className = "seg tax";
+      segTax.style.height = `${taxH}px`;
 
-      const segInc = document.createElement("span");
-      segInc.className = "seg incentives";
-      segInc.style.height = `${incentivesH}px`;
+      const segContributions = document.createElement("span");
+      segContributions.className = "seg contributions";
+      segContributions.style.height = `${contributionsH}px`;
 
       bar.appendChild(segBase);
-      bar.appendChild(segOver);
-      bar.appendChild(segInc);
+      bar.appendChild(segTax);
+      bar.appendChild(segContributions);
     });
 
     // Year switching scoped to THIS component
     const yearsWrap = component.querySelector(".breakdown_years");
     if (yearsWrap && !yearsWrap.dataset.bound) {
       yearsWrap.dataset.bound = "1";
+      updateBreakdownYearControls(component, activePayrollBreakdownYear);
 
       yearsWrap.addEventListener("click", (e) => {
-        const btn = e.target.closest(".year_chip");
-        if (!btn) return;
+        const navBtn = e.target.closest("[data-year-nav]");
+        if (!navBtn) return;
 
-        yearsWrap.querySelectorAll(".year_chip").forEach((b) => b.classList.remove("is-active"));
-        btn.classList.add("is-active");
+        const direction = navBtn.dataset.yearNav === "next" ? 1 : -1;
+        const proposedYear = direction > 0
+          ? Math.min(CURRENT_YEAR, activePayrollBreakdownYear + 1)
+          : activePayrollBreakdownYear - 1;
 
-        const year = btn.dataset.year;
+        if (proposedYear === activePayrollBreakdownYear) return;
         if (typeof window.loadPayrollBreakdown === "function") {
-          window.loadPayrollBreakdown(year);
-        } else {
-          initPayrollBreakdownCharts(component);
+          window.loadPayrollBreakdown(proposedYear);
         }
       });
     }

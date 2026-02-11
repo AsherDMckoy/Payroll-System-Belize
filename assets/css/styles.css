@@ -360,6 +360,7 @@ select:focus-visible {
 .payroll_breakdown .breakdowns_chart {
   display: flex;
   align-items: flex-end;
+  justify-content: center;
   gap: var(--gap-3);
   padding-top: var(--gap-1);
   overflow: visible;
@@ -408,11 +409,13 @@ select:focus-visible {
   background: linear-gradient(180deg, rgba(124, 92, 255, 0.95), rgba(124, 92, 255, 0.55));
 }
 
-.payroll_breakdown .breakdown_bar .seg.overtime {
+.payroll_breakdown .breakdown_bar .seg.overtime,
+.payroll_breakdown .breakdown_bar .seg.tax {
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.95), rgba(56, 189, 248, 0.55));
 }
 
-.payroll_breakdown .breakdown_bar .seg.incentives {
+.payroll_breakdown .breakdown_bar .seg.incentives,
+.payroll_breakdown .breakdown_bar .seg.contributions {
   background: linear-gradient(180deg, rgba(34, 197, 94, 0.9), rgba(34, 197, 94, 0.5));
 }
 
@@ -429,6 +432,8 @@ select:focus-visible {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.85rem;
+  justify-content: center;
+  align-items: center;
   flex-wrap: wrap;
 }
 
@@ -454,6 +459,32 @@ select:focus-visible {
   background: rgba(78, 124, 255, 0.16);
   border-color: rgba(78, 124, 255, 0.45);
   color: var(--text-primary);
+}
+
+.payroll_breakdown .year_nav {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border-radius: 999px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.payroll_breakdown .year_nav:hover:not(:disabled) {
+  transform: translateY(-1px);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.payroll_breakdown .year_nav:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 
@@ -533,10 +564,12 @@ select:focus-visible {
 .tooltip_swatch_base {
   background: linear-gradient(135deg, rgba(124, 92, 255, 0.95), rgba(124, 92, 255, 0.55));
 }
-.tooltip_swatch_overtime {
+.tooltip_swatch_overtime,
+.tooltip_swatch_tax {
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(56, 189, 248, 0.55));
 }
-.tooltip_swatch_incentives {
+.tooltip_swatch_incentives,
+.tooltip_swatch_contributions {
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(34, 197, 94, 0.5));
 }
 

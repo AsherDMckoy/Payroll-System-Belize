@@ -43,8 +43,8 @@ pub struct PaydayInfo {
     pub day_of_month: u32,
     pub total_days_in_period: u32,
     pub base_salary: String,
-    pub overtime: String,
-    pub incentives: String,
+    pub tax_paid: String,
+    pub company_contributions: String,
     pub total: String,
 }
 
@@ -63,9 +63,10 @@ pub struct EmployeeRow {
     pub name: String,
     pub position: String,
     pub department: String,
+    pub gross_salary: f64,
     pub net_salary: f64,
     pub contributions: f64,
-    pub deductions: f64,
+    pub tax_paid: f64,
 }
 
 // ---- Payroll breakdown (chart) ----
@@ -80,10 +81,10 @@ pub struct PayrollBreakdownResponse {
 pub struct MonthBreakdown {
     pub month: u32,
     pub label: String,
-    pub total: u32,
-    pub base: u32,
-    pub overtime: u32,
-    pub incentives: u32,
+    pub total: f64,
+    pub base: f64,
+    pub tax_paid: f64,
+    pub company_contributions: f64,
 }
 
 // ---- Payroll generation ----
