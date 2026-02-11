@@ -5,21 +5,21 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::models::api::{
-    DashboardOverviewResponse, EmployeeRow, EmployeesResponse, MonthBreakdown,
-    PayPeriodInfo, PayrollBreakdownResponse, RecentActivityRow,
+    DashboardOverviewResponse, EmployeeRow, EmployeesResponse, MonthBreakdown, PayPeriodInfo,
+    PaydayInfo, PayrollBreakdownResponse, RecentActivityRow,
 };
 
 /// GET /api/dashboard/overview
 pub async fn dashboard_overview() -> Json<DashboardOverviewResponse> {
     Json(DashboardOverviewResponse {
         payroll_total: "350000".to_string(),
-        payroll_label: "This Month (June 2025)".to_string(),
+        payroll_label: "This Month (February 2026)".to_string(),
         employee_count: 25,
         employee_delta: "0 added since last month".to_string(),
         deductions_total: "150000".to_string(),
-        deductions_label: "This Month (June 2025)".to_string(),
+        deductions_label: "This Month (February 2026)".to_string(),
         contributions_total: "50000".to_string(),
-        contributions_label: "This Month (June 2025)".to_string(),
+        contributions_label: "This Month (February 2026)".to_string(),
         recent_activity: vec![
             RecentActivityRow {
                 employee_name: "Hedy Lamarr".to_string(),
@@ -47,9 +47,20 @@ pub async fn dashboard_overview() -> Json<DashboardOverviewResponse> {
             },
         ],
         pay_period: PayPeriodInfo {
-            working_days: 10,
-            working_hours: 80,
-            label: "Months Dates".to_string(),
+            working_days: 20,
+            working_hours: 160,
+            label: "Current Pay Period".to_string(),
+            start_date: "Feb 1".to_string(),
+            end_date: "Feb 28".to_string(),
+            payday: PaydayInfo {
+                date: "Feb 15, 2026".to_string(),
+                day_of_month: 15,
+                total_days_in_period: 28,
+                base_salary: "$185,000".to_string(),
+                overtime: "$45,000".to_string(),
+                incentives: "$20,000".to_string(),
+                total: "$250,000".to_string(),
+            },
         },
     })
 }

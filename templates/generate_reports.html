@@ -107,7 +107,7 @@
       </div>
       <div class="modal-body">
         <div class="summary" id="reports-modal-summary"></div>
-        <p class="muted">This is a UI-only preview for now. When your backend is ready, this button can call your API and download the file.</p>
+        <p class="muted">This generates real backend reports. CSV and JSON exports are available now.</p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" type="button" data-modal-close>Cancel</button>
@@ -130,7 +130,7 @@
           <li><strong>Refine filters</strong> on the right (date range, employee, department, deduction types).</li>
           <li><strong>Preview or generate</strong> to export as PDF/CSV/XLSX.</li>
         </ol>
-        <p class="muted">Tip: You can wire your backend later by posting the form values to an endpoint like <code>/api/reports/generate</code>.</p>
+        <p class="muted">Tip: This UI posts filter values to <code>/api/reports/generate</code>. Unsupported formats fall back to CSV.</p>
       </div>
       <div class="modal-footer">
         <button class="btn" type="button" data-help-close>Got it</button>

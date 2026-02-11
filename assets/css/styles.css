@@ -541,15 +541,153 @@ select:focus-visible {
 }
 
 /* Pay period card-like bar */
+.pay_period_bar_container {
+  position: relative;
+  margin-top: 1rem;
+}
+
 .pay_period_breakdown .pay_period_bar {
   height: 58px;
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.25), rgba(124, 92, 255, 0.18));
   border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 0.9rem 1rem;
+  padding: 0.9rem 1.2rem;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  position: relative;
+}
+
+/* Payday fisheye bubble */
+.payday_bubble {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 10;
+  animation: bubblePulse 2s ease-in-out infinite;
+}
+
+.payday_bubble_inner {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.95), rgba(56, 189, 248, 0.95));
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  width: 90px;
+  height: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 
+    0 0 0 8px rgba(124, 92, 255, 0.15),
+    0 0 0 16px rgba(124, 92, 255, 0.08),
+    0 15px 40px rgba(124, 92, 255, 0.4);
+  position: relative;
+}
+
+.payday_bubble_inner::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  padding: 2px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), transparent);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.6;
+}
+
+.payday_date {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.02em;
+}
+
+.payday_label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+@keyframes bubblePulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+/* Payday breakdown section */
+.payday_breakdown {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.payday_breakdown h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.breakdown_grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.breakdown_item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.breakdown_item.breakdown_total {
+  grid-column: span 2;
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.15), rgba(56, 189, 248, 0.10));
+  border-color: rgba(124, 92, 255, 0.3);
+}
+
+.breakdown_label {
+  font-size: 0.75rem;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.breakdown_value {
+  font-size: 1.15rem;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.breakdown_total .breakdown_value {
+  font-size: 1.35rem;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .pay_period_subheaders {
@@ -601,30 +739,215 @@ select:focus-visible {
 }
 
 .payroll_breakdowns { grid-column: span 7; }
-.payperiod_details { grid-column: span 5; display: flex; flex-direction: column; gap: 1rem; }
-.employees_payroll_table { grid-column: 1 / -1; }
 
-.payperiod_details .graph_details {
+.payperiod_details { 
+  grid-column: span 5;
+  padding: 1.5rem;
+}
+
+.payperiod_details .card_title {
+  margin-bottom: 1.25rem;
+}
+
+/* Info Grid - Clean 2x2 layout */
+.pay_period_info_grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.info_item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.info_label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info_value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.info_value.status {
+  display: flex;
   align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
 }
 
+.status_indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status_scheduled {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.9), rgba(124, 92, 255, 0.7));
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+}
+
+.status_paid {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(16, 185, 129, 0.7));
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+}
+
+.status_pending {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.9), rgba(245, 158, 11, 0.7));
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
+}
+
+/* Pay Period Summary - Chart + Total */
+.pay_period_summary {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.summary_chart {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  flex: 1;
+}
+
+/* SVG Circle Graph */
 .circle_graph {
-  width: 64px;
-  height: 64px;
-  border-radius: 999px;
-  background: conic-gradient(from 180deg, rgba(124, 92, 255, 0.9), rgba(56, 189, 248, 0.7), rgba(124, 92, 255, 0.25));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: var(--shadow-soft);
+  width: 90px;
+  height: 90px;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
 }
 
-.pay_period_details_topRow,
-.pay_period_details_bottomRow,
-.pay_period_graphRow {
-  width: 100%;
-  justify-content: space-between;
-  gap: 1rem;
+.circle_bg {
+  fill: none;
+  stroke: var(--surface-2);
+  stroke-width: 8;
 }
+
+.circle_progress {
+  fill: none;
+  stroke: url(#progressGradient);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dasharray 1s ease-out;
+}
+
+.circle_percentage {
+  font-size: 16px;
+  font-weight: 700;
+  fill: var(--text);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  transform: rotate(90deg);
+  transform-origin: center;
+}
+
+/* Chart Legend */
+.chart_legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.legend_item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.legend_color {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legend_color.gross {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.9), rgba(56, 189, 248, 0.7));
+  border: 1px solid rgba(124, 92, 255, 0.3);
+}
+
+.legend_color.deductions {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.8), rgba(220, 38, 38, 0.6));
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.legend_text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.legend_label {
+  font-size: 0.72rem;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.legend_value {
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Summary Total */
+.summary_total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.12), rgba(56, 189, 248, 0.08));
+  border: 1px solid rgba(124, 92, 255, 0.25);
+  border-radius: var(--radius-sm);
+  min-width: 140px;
+}
+
+.total_icon {
+  width: 32px;
+  height: 32px;
+  color: var(--primary);
+  opacity: 0.8;
+}
+
+.total_label {
+  font-size: 0.7rem;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  text-align: center;
+}
+
+.total_value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-variant-numeric: tabular-nums;
+}
+
+.employees_payroll_table { grid-column: 1 / -1; }
 
 /* ---- Employees Section ---- */
 .employee_data {

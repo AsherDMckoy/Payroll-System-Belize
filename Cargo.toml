@@ -16,3 +16,14 @@ dotenvy  = "0.15.7"
 log = "0.4.27"
 env_logger = "0.11.8"
 anyhow = "1.0.98"
+
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "chrono",
+    "rust_decimal",
+    "json",
+    "migrate"
+] }
+chrono = { version = "0.4.43", features = ["serde"] }
+rust_decimal = { version = "1.40.0", features = ["serde", "db-postgres"] }

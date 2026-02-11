@@ -21,7 +21,8 @@
 	  <p><small class="card_subtext" data-dashboard-sublabel>—</small></p>
 	</div>
 	{% include "payroll_breakdown_chart.html" %}
-	<div class="pay_period_breakdown"><h3>Current Pay Period Breakdown</h3>
+	<div class="pay_period_breakdown">
+    <h3>Current Pay Period Breakdown</h3>
     <div class="pay_period_subheaders">
       <div class="pay_period_subtitle" data-pay-period-days>
         <span data-pay-period-days-value>—</span> <span class="pay_period_subtext">Working Days</span>
@@ -30,7 +31,42 @@
         <span data-pay-period-hours-value>—</span> <span class="pay_period_subtext">Working Hours</span>
       </div>
     </div>
-    <div class="pay_period_bar" data-pay-period-label>—</div>
+    
+    <div class="pay_period_bar_container">
+      <div class="pay_period_bar">
+        <span data-pay-period-start>—</span>
+        <span data-pay-period-end>—</span>
+      </div>
+      
+      <div class="payday_bubble" data-payday-bubble hidden>
+        <div class="payday_bubble_inner">
+          <div class="payday_date" data-payday-date>—</div>
+          <div class="payday_label">Payday</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="payday_breakdown" data-payday-breakdown hidden>
+      <h4>Payday Breakdown</h4>
+      <div class="breakdown_grid">
+        <div class="breakdown_item">
+          <span class="breakdown_label">Base Salary</span>
+          <span class="breakdown_value" data-payday-base>—</span>
+        </div>
+        <div class="breakdown_item">
+          <span class="breakdown_label">Overtime</span>
+          <span class="breakdown_value" data-payday-overtime>—</span>
+        </div>
+        <div class="breakdown_item">
+          <span class="breakdown_label">Incentives</span>
+          <span class="breakdown_value" data-payday-incentives>—</span>
+        </div>
+        <div class="breakdown_item breakdown_total">
+          <span class="breakdown_label">Total</span>
+          <span class="breakdown_value" data-payday-total>—</span>
+        </div>
+      </div>
+    </div>
   </div>
 	<div class="recent_activity">
 	  <h3>Recent Payroll Activity</h3>

@@ -1,12 +1,15 @@
+pub mod db;
 pub mod handlers;
 pub mod models;
 use std::net::SocketAddr;
 
 use crate::handlers::api::{dashboard_overview, employees_list, payroll_breakdown};
+use crate::handlers::payroll::{generate_payroll, payroll_periods};
+use crate::handlers::reports::generate_report;
 use crate::models::views::{HtmlTemplate, IndexTemplate};
 use axum::{
-    response::{Html, IntoResponse},
-    routing::get,
+    response::IntoResponse,
+    routing::{get, post},
     Router,
 };
 use models::views::Error404Template;
@@ -16,6 +19,17 @@ use tower_http::services::{ServeDir, ServeFile};
 async fn main() -> Result<(), std::io::Error> {
     dotenvy::dotenv().ok();
     env_logger::init();
+
+    println!("Connecting to database...");
+    let pool = db::create_pool()
+        .await
+        .expect("Failed to create database pool");
+    println!("✓ Database connected!");
+    db::run_migrations(&pool)
+        .await
+        .expect("Failed to run database migrations");
+    println!("✓ Migrations complete!");
+
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/payroll", get(index_handler))
@@ -24,9 +38,13 @@ async fn main() -> Result<(), std::io::Error> {
         .route("/api/dashboard/overview", get(dashboard_overview))
         .route("/api/employees", get(employees_list))
         .route("/api/payroll-breakdown", get(payroll_breakdown))
+        .route("/api/payroll/periods", get(payroll_periods))
+        .route("/api/payroll/generate", post(generate_payroll))
+        .route("/api/reports/generate", post(generate_report))
         .route_service("/favicon.ico", ServeFile::new("assets/favicon.ico"))
         .nest_service("/assets", ServeDir::new("assets"))
-        .fallback(fallback_handler);
+        .fallback(fallback_handler)
+        .with_state(pool);
 
     // run our app with hyper, listening globally on port 9000
     let port = 9000;

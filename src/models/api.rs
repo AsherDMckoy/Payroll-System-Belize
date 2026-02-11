@@ -1,6 +1,7 @@
 // API response types for JSON endpoints (hardcoded data for now).
 
-use serde::Serialize;
+use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
 
 // ---- Dashboard overview ----
 
@@ -31,6 +32,20 @@ pub struct PayPeriodInfo {
     pub working_days: u32,
     pub working_hours: u32,
     pub label: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub payday: PaydayInfo,
+}
+
+#[derive(Serialize)]
+pub struct PaydayInfo {
+    pub date: String,
+    pub day_of_month: u32,
+    pub total_days_in_period: u32,
+    pub base_salary: String,
+    pub overtime: String,
+    pub incentives: String,
+    pub total: String,
 }
 
 // ---- Employees ----
@@ -69,4 +84,59 @@ pub struct MonthBreakdown {
     pub base: u32,
     pub overtime: u32,
     pub incentives: u32,
+}
+
+// ---- Payroll generation ----
+
+#[derive(Serialize)]
+pub struct PayrollPeriodsResponse {
+    pub periods: Vec<PayrollPeriodItem>,
+}
+
+#[derive(Serialize)]
+pub struct PayrollPeriodItem {
+    pub id: i32,
+    pub start_date: String,
+    pub end_date: String,
+    pub pay_date: String,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GeneratePayrollRequest {
+    pub payroll_period_id: i32,
+    #[serde(default)]
+    pub force_recalculate: bool,
+}
+
+#[derive(Serialize)]
+pub struct GeneratePayrollResponse {
+    pub payroll_period_id: i32,
+    pub pay_date: String,
+    pub employees_processed: usize,
+    pub total_gross_pay: String,
+    pub total_deductions: String,
+    pub total_net_pay: String,
+    pub status: String,
+}
+
+// ---- Report generation ----
+
+#[derive(Debug, Deserialize)]
+pub struct GenerateReportRequest {
+    pub report_type: String,
+    pub format: Option<String>,
+    pub payroll_period_id: Option<i32>,
+    pub start_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
+}
+
+#[derive(Serialize)]
+pub struct GenerateReportResponse {
+    pub report_type: String,
+    pub format: String,
+    pub generated_at: String,
+    pub row_count: usize,
+    pub headers: Vec<String>,
+    pub rows: Vec<Vec<String>>,
 }

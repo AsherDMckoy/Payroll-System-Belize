@@ -30,45 +30,73 @@
 	  <p><small class="card_subtext">0 added since last month</small></p>
 	</div>
   {% include "payroll_breakdown_chart.html" %}
-  <div class="payperiod_details">
-    <div class="pay_period_details_topRow flex">
-      <div class="pay_period_date flex col">
-        <span class="sub_title">Payroll Period</span>
-        <span id="pay-period-date">Aug 1, 2025 - Aug 15, 2025</span>
+  <div class="payperiod_details card">
+    <h3 class="card_title">Pay Period Details</h3>
+    
+    <div class="pay_period_info_grid">
+      <div class="info_item">
+        <span class="info_label">Payroll Period</span>
+        <span class="info_value" data-payroll-period>Aug 1, 2025 - Aug 15, 2025</span>
       </div>
-      <div class="pay_period_total_employees flex col">
-        <span class="sub_title">Total Employees</span>
-        <span id="employee_count">100</span>
+      <div class="info_item">
+        <span class="info_label">Total Employees</span>
+        <span class="info_value" data-total-employees>100</span>
+      </div>
+      <div class="info_item">
+        <span class="info_label">Pay Day</span>
+        <span class="info_value" data-pay-day>Aug 15<sup>th</sup>, 2025</span>
+      </div>
+      <div class="info_item">
+        <span class="info_label">Status</span>
+        <span class="info_value status" data-payroll-status>
+          <span class="status_indicator status_scheduled"></span>
+          Scheduled
+        </span>
       </div>
     </div>
-    <div class="pay_period_details_bottomRow flex">
-      <div class="pay_period_pay_day flex col">
-        <span class="sub_title">Pay Day</span>
-        <span>Aug 15<sup>th</sup>, 2025</span>
-      </div>
-      <div class="pay_period_status flex col">
-        <span class="sub_title">Status</span>
-        <span>Scheduled</span>
-      </div>
-    </div>
-    <div class="pay_period_graphRow flex">
-      <div class="graph_details flex">
-        <div class="circle_graph"></div>
-        <div class="graph_info">
-          <div class="gross_pay flex col">
-            <span class="sub_title">Gross Pay</span>
-            <span>$123,000</span>
+    
+    <div class="pay_period_summary">
+      <div class="summary_chart">
+        <svg class="circle_graph" viewBox="0 0 100 100" data-circle-graph>
+          <defs>
+            <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:rgba(124, 92, 255, 0.95);stop-opacity:1" />
+              <stop offset="100%" style="stop-color:rgba(56, 189, 248, 0.85);stop-opacity:1" />
+            </linearGradient>
+          </defs>
+          <circle class="circle_bg" cx="50" cy="50" r="40" />
+          <circle class="circle_progress" cx="50" cy="50" r="40" 
+                  data-circle-progress
+                  stroke-dasharray="0 251.2" />
+          <text class="circle_percentage" x="50" y="50" data-circle-percentage>0%</text>
+        </svg>
+        <div class="chart_legend">
+          <div class="legend_item">
+            <span class="legend_color gross"></span>
+            <div class="legend_text">
+              <span class="legend_label">Gross Pay</span>
+              <span class="legend_value" data-gross-pay>$123,000</span>
+            </div>
           </div>
-          <div class="deductions flex col">
-            <span class="sub_title">Deductions</span>
-            <span>$90,000</span>
+          <div class="legend_item">
+            <span class="legend_color deductions"></span>
+            <div class="legend_text">
+              <span class="legend_label">Deductions</span>
+              <span class="legend_value" data-deductions>$90,000</span>
+            </div>
           </div>
         </div>
       </div>
-      <div class="totals flex col">
-        <div class="square"></div>
-        <span class="sub_title">Total Pay</span>
-        <span>$14,000,000</span>
+      
+      <div class="summary_total">
+        <div class="total_icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+            <path d="M9 12h6M12 9v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <span class="total_label">Total Net Pay</span>
+        <span class="total_value" data-total-net-pay>$14,000,000</span>
       </div>
     </div>
   </div>
