@@ -120,6 +120,29 @@ pub struct GeneratePayrollResponse {
     pub status: String,
 }
 
+#[derive(Serialize)]
+pub struct PayrollPeriodDetailsResponse {
+    pub period_id: i32,
+    pub start_date: String,
+    pub end_date: String,
+    pub pay_date: String,
+    pub status: String,
+    pub total_employees: u32,
+    pub gross_pay: f64,
+    pub deductions: f64,
+    pub net_pay: f64,
+    pub employees: Vec<PayrollPeriodEmployeeRow>,
+}
+
+#[derive(Serialize)]
+pub struct PayrollPeriodEmployeeRow {
+    pub employee_name: String,
+    pub position: String,
+    pub department: String,
+    pub net_salary: f64,
+    pub payment_status: String,
+}
+
 // ---- Report generation ----
 
 #[derive(Debug, Deserialize)]
@@ -129,6 +152,9 @@ pub struct GenerateReportRequest {
     pub payroll_period_id: Option<i32>,
     pub start_date: Option<NaiveDate>,
     pub end_date: Option<NaiveDate>,
+    pub employee_id: Option<i32>,
+    pub department: Option<String>,
+    pub status: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -139,4 +165,18 @@ pub struct GenerateReportResponse {
     pub row_count: usize,
     pub headers: Vec<String>,
     pub rows: Vec<Vec<String>>,
+}
+
+#[derive(Serialize)]
+pub struct ReportFilterOptionsResponse {
+    pub employees: Vec<ReportEmployeeOption>,
+    pub departments: Vec<String>,
+    pub statuses: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct ReportEmployeeOption {
+    pub id: i32,
+    pub name: String,
+    pub status: String,
 }

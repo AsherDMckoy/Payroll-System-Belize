@@ -11,11 +11,11 @@ document.documentElement.style.setProperty(
 // =============================
 
 function formatCompactCurrency(numStr) {
-  const n = parseInt(numStr, 10);
+  const n = parseFloat(numStr);
   if (!Number.isFinite(n)) return "—";
   if (n >= 1000000) return "$" + (n / 1000000).toFixed(1) + "M";
   if (n >= 1000) return "$" + (n / 1000).toFixed(0) + "K";
-  return "$" + n;
+  return "$" + Math.round(n);
 }
 
 function formatCurrency(num) {
@@ -28,105 +28,128 @@ function formatCurrency(num) {
   }).format(n);
 }
 
+function applyDashboardOverviewData(data, grid, tbody) {
+  if (!grid || !tbody) return;
+
+  grid.querySelector(".payroll_total [data-dashboard-value]").textContent =
+    formatCompactCurrency(data.payroll_total);
+  grid.querySelector(".payroll_total [data-dashboard-sublabel]").textContent =
+    data.payroll_label || "—";
+
+  grid.querySelector(".employee_total [data-dashboard-value]").textContent =
+    String(data.employee_count ?? "—");
+  grid.querySelector(".employee_total [data-dashboard-sublabel]").textContent =
+    data.employee_delta || "—";
+
+  grid.querySelector(".deduction_total [data-dashboard-value]").textContent =
+    formatCompactCurrency(data.deductions_total);
+  grid.querySelector(".deduction_total [data-dashboard-sublabel]").textContent =
+    data.deductions_label || "—";
+
+  grid.querySelector(".contribution_total [data-dashboard-value]").textContent =
+    formatCurrency(data.contributions_total);
+  grid.querySelector(".contribution_total [data-dashboard-sublabel]").textContent =
+    data.contributions_label || "—";
+
+  const pp = data.pay_period || {};
+  const daysEl = grid.querySelector("[data-pay-period-days-value]");
+  const hoursEl = grid.querySelector("[data-pay-period-hours-value]");
+  if (daysEl) daysEl.textContent = pp.working_days ?? "—";
+  if (hoursEl) hoursEl.textContent = pp.working_hours ?? "—";
+
+  const startEl = grid.querySelector("[data-pay-period-start]");
+  const endEl = grid.querySelector("[data-pay-period-end]");
+  if (startEl) startEl.textContent = pp.start_date ?? "—";
+  if (endEl) endEl.textContent = pp.end_date ?? "—";
+
+  if (pp.payday) {
+    const bubble = grid.querySelector("[data-payday-bubble]");
+    const paydayDateEl = grid.querySelector("[data-payday-date]");
+
+    if (bubble && paydayDateEl) {
+      paydayDateEl.textContent = pp.payday.date || "—";
+
+      const dayOfMonth = pp.payday.day_of_month;
+      const totalDays = pp.payday.total_days_in_period;
+      if (dayOfMonth && totalDays) {
+        const percentage = (dayOfMonth / totalDays) * 100;
+        bubble.style.left = `${percentage}%`;
+        bubble.hidden = false;
+      } else {
+        bubble.hidden = true;
+      }
+    }
+
+    const breakdownSection = grid.querySelector("[data-payday-breakdown]");
+    if (breakdownSection) {
+      const baseEl = breakdownSection.querySelector("[data-payday-base]");
+      const overtimeEl = breakdownSection.querySelector("[data-payday-overtime]");
+      const incentivesEl = breakdownSection.querySelector("[data-payday-incentives]");
+      const totalEl = breakdownSection.querySelector("[data-payday-total]");
+
+      if (baseEl) baseEl.textContent = pp.payday.base_salary || "—";
+      if (overtimeEl) overtimeEl.textContent = pp.payday.overtime || "—";
+      if (incentivesEl) incentivesEl.textContent = pp.payday.incentives || "—";
+      if (totalEl) totalEl.textContent = pp.payday.total || "—";
+
+      breakdownSection.hidden = false;
+    }
+  }
+
+  tbody.innerHTML = "";
+  (data.recent_activity || []).forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(row.employee_name)}</td>
+      <td>${escapeHtml(row.position)}</td>
+      <td>${escapeHtml(row.salary_paid)}</td>
+      <td>${escapeHtml(row.status)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  if (tbody.children.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td colspan=\"4\">No recent activity</td>";
+    tbody.appendChild(tr);
+  }
+}
+
+function applyPayrollPageSummaryCards(data) {
+  const payrollValue = document.querySelector("[data-payroll-page-payroll-value]");
+  const payrollLabel = document.querySelector("[data-payroll-page-payroll-label]");
+  const contributionsValue = document.querySelector("[data-payroll-page-contributions-value]");
+  const contributionsLabel = document.querySelector("[data-payroll-page-contributions-label]");
+  const deductionsValue = document.querySelector("[data-payroll-page-deductions-value]");
+  const deductionsLabel = document.querySelector("[data-payroll-page-deductions-label]");
+  const employeesValue = document.querySelector("[data-payroll-page-employees-value]");
+  const employeesLabel = document.querySelector("[data-payroll-page-employees-label]");
+
+  if (payrollValue) payrollValue.textContent = formatCompactCurrency(data.payroll_total);
+  if (payrollLabel) payrollLabel.textContent = data.payroll_label || "—";
+  if (contributionsValue) contributionsValue.textContent = formatCurrency(data.contributions_total);
+  if (contributionsLabel) contributionsLabel.textContent = data.contributions_label || "—";
+  if (deductionsValue) deductionsValue.textContent = formatCompactCurrency(data.deductions_total);
+  if (deductionsLabel) deductionsLabel.textContent = data.deductions_label || "—";
+  if (employeesValue) employeesValue.textContent = String(data.employee_count ?? "—");
+  if (employeesLabel) employeesLabel.textContent = data.employee_delta || "—";
+}
+
 async function loadDashboardOverview() {
   const grid = document.getElementById("dashboard-overview-grid");
   const tbody = document.getElementById("recent-activity-tbody");
-  if (!grid || !tbody) return;
 
   try {
     const res = await fetch("/api/dashboard/overview");
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
-
-    grid.querySelector(".payroll_total [data-dashboard-value]").textContent =
-      formatCompactCurrency(data.payroll_total);
-    grid.querySelector(".payroll_total [data-dashboard-sublabel]").textContent =
-      data.payroll_label || "—";
-
-    grid.querySelector(".employee_total [data-dashboard-value]").textContent =
-      String(data.employee_count ?? "—");
-    grid.querySelector(".employee_total [data-dashboard-sublabel]").textContent =
-      data.employee_delta || "—";
-
-    grid.querySelector(".deduction_total [data-dashboard-value]").textContent =
-      formatCompactCurrency(data.deductions_total);
-    grid.querySelector(".deduction_total [data-dashboard-sublabel]").textContent =
-      data.deductions_label || "—";
-
-    grid.querySelector(".contribution_total [data-dashboard-value]").textContent =
-      formatCurrency(data.contributions_total);
-    grid.querySelector(".contribution_total [data-dashboard-sublabel]").textContent =
-      data.contributions_label || "—";
-
-    const pp = data.pay_period || {};
-    const daysEl = grid.querySelector("[data-pay-period-days-value]");
-    const hoursEl = grid.querySelector("[data-pay-period-hours-value]");
-    if (daysEl) daysEl.textContent = pp.working_days ?? "—";
-    if (hoursEl) hoursEl.textContent = pp.working_hours ?? "—";
-
-    // Update pay period date range
-    const startEl = grid.querySelector("[data-pay-period-start]");
-    const endEl = grid.querySelector("[data-pay-period-end]");
-    if (startEl) startEl.textContent = pp.start_date ?? "—";
-    if (endEl) endEl.textContent = pp.end_date ?? "—";
-
-    // Update and position payday bubble
-    if (pp.payday) {
-      const bubble = grid.querySelector("[data-payday-bubble]");
-      const paydayDateEl = grid.querySelector("[data-payday-date]");
-
-      if (bubble && paydayDateEl) {
-        paydayDateEl.textContent = pp.payday.date || "—";
-
-        // Calculate bubble position as percentage of total days
-        const dayOfMonth = pp.payday.day_of_month;
-        const totalDays = pp.payday.total_days_in_period;
-
-        if (dayOfMonth && totalDays) {
-          const percentage = (dayOfMonth / totalDays) * 100;
-          bubble.style.left = `${percentage}%`;
-          bubble.hidden = false;
-        }
-      }
-
-      // Update breakdown details
-      const breakdownSection = grid.querySelector("[data-payday-breakdown]");
-      if (breakdownSection) {
-        const baseEl = breakdownSection.querySelector("[data-payday-base]");
-        const overtimeEl = breakdownSection.querySelector("[data-payday-overtime]");
-        const incentivesEl = breakdownSection.querySelector("[data-payday-incentives]");
-        const totalEl = breakdownSection.querySelector("[data-payday-total]");
-
-        if (baseEl) baseEl.textContent = pp.payday.base_salary || "—";
-        if (overtimeEl) overtimeEl.textContent = pp.payday.overtime || "—";
-        if (incentivesEl) incentivesEl.textContent = pp.payday.incentives || "—";
-        if (totalEl) totalEl.textContent = pp.payday.total || "—";
-
-        breakdownSection.hidden = false;
-      }
-    }
-
-    tbody.innerHTML = "";
-    (data.recent_activity || []).forEach((row) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(row.employee_name)}</td>
-        <td>${escapeHtml(row.position)}</td>
-        <td>${escapeHtml(row.salary_paid)}</td>
-        <td>${escapeHtml(row.status)}</td>
-      `;
-      tbody.appendChild(tr);
-    });
-    if (tbody.children.length === 0) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = "<td colspan=\"4\">No recent activity</td>";
-      tbody.appendChild(tr);
-    }
+    applyDashboardOverviewData(data, grid, tbody);
+    return data;
   } catch (err) {
     console.error("loadDashboardOverview:", err);
     if (tbody) {
       tbody.innerHTML = "<tr><td colspan=\"4\">Failed to load</td></tr>";
     }
+    return null;
   }
 }
 
@@ -142,7 +165,8 @@ async function loadPayrollBreakdown(year) {
   if (!components.length) return;
 
   try {
-    const res = await fetch("/api/payroll-breakdown?year=" + encodeURIComponent(year || 2026));
+    const query = year ? `?year=${encodeURIComponent(year)}` : "";
+    const res = await fetch(`/api/payroll-breakdown${query}`);
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
 
@@ -183,11 +207,21 @@ async function loadPayrollBreakdown(year) {
           tooltipList[2].textContent = String(incentives);
         }
       }
+
+      const yearsWrap = component.querySelector(".breakdown_years");
+      if (yearsWrap && data.year) {
+        yearsWrap.querySelectorAll(".year_chip").forEach((btn) => {
+          const isActive = String(btn.dataset.year || "") === String(data.year);
+          btn.classList.toggle("is-active", isActive);
+        });
+      }
     });
 
     initPayrollBreakdownCharts();
+    return data;
   } catch (err) {
     console.error("loadPayrollBreakdown:", err);
+    return null;
   }
 }
 
@@ -240,7 +274,7 @@ function initOverviewPage() {
   loadDashboardOverview();
   const chart = document.querySelector('.payroll_breakdown[data-chart="payroll-breakdown"]');
   const activeYearBtn = chart && chart.querySelector(".year_chip.is-active");
-  const year = activeYearBtn ? (activeYearBtn.dataset.year || "2026") : "2026";
+  const year = activeYearBtn ? (activeYearBtn.dataset.year || null) : null;
   loadPayrollBreakdown(year);
 }
 
@@ -262,9 +296,10 @@ function formatPeriodLabel(period) {
 
 async function loadPayrollPeriods() {
   const select = document.getElementById("pay-period");
-  if (!select) return;
+  if (!select) return [];
 
   try {
+    const previousSelection = select.value;
     const res = await fetch("/api/payroll/periods");
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
@@ -283,9 +318,17 @@ async function loadPayrollPeriods() {
       option.value = "";
       option.textContent = "No payroll periods available";
       select.appendChild(option);
+      return [];
     }
+
+    const hasPrevious = periods.some((p) => String(p.id) === previousSelection);
+    if (hasPrevious) {
+      select.value = previousSelection;
+    }
+    return periods;
   } catch (err) {
     console.error("loadPayrollPeriods:", err);
+    return [];
   }
 }
 
@@ -324,7 +367,12 @@ function wirePayrollActions() {
   payrollActionsWired = true;
 
   const newPayrollBtn = document.querySelector(".new_payroll_btn");
-  if (!newPayrollBtn) return;
+  const payPeriodSelect = document.getElementById("pay-period");
+  if (!newPayrollBtn || !payPeriodSelect) return;
+
+  payPeriodSelect.addEventListener("change", () => {
+    updatePayrollPeriodDetails();
+  });
 
   newPayrollBtn.addEventListener("click", async () => {
     const originalText = newPayrollBtn.textContent;
@@ -338,9 +386,11 @@ function wirePayrollActions() {
           `Payroll generated.\nEmployees: ${result.employees_processed}\nNet Pay: ${result.total_net_pay}`,
         );
       }
-      loadDashboardOverview();
+      const overviewData = await loadDashboardOverview();
+      if (overviewData) applyPayrollPageSummaryCards(overviewData);
+      await loadPayrollPeriods();
+      await updatePayrollPeriodDetails();
       loadEmployees();
-      loadPayrollPeriods();
     } catch (err) {
       console.error("generatePayrollForSelectedPeriod:", err);
       alert(`Payroll generation failed: ${err.message || err}`);
@@ -352,56 +402,79 @@ function wirePayrollActions() {
 }
 
 // Payroll process page init – populate chart so it works when landing directly on /payroll
-function initPayrollPage() {
+async function initPayrollPage() {
   const chart = document.querySelector('.payroll_breakdown[data-chart="payroll-breakdown"]');
   const activeYearBtn = chart && chart.querySelector(".year_chip.is-active");
-  const year = activeYearBtn ? (activeYearBtn.dataset.year || "2026") : "2026";
+  const year = activeYearBtn ? (activeYearBtn.dataset.year || null) : null;
   loadPayrollBreakdown(year);
-  loadPayrollPeriods();
   wirePayrollActions();
-  updatePayrollPeriodDetails();
+  const overviewData = await loadDashboardOverview();
+  if (overviewData) applyPayrollPageSummaryCards(overviewData);
+  await loadPayrollPeriods();
+  await updatePayrollPeriodDetails();
 }
 
-// Update pay period details with circle graph animation
-function updatePayrollPeriodDetails() {
-  // This would normally come from an API call
-  // For now, using the hardcoded values from the HTML and calculating from them
-  const grossPayEl = document.querySelector('[data-gross-pay]');
-  const deductionsEl = document.querySelector('[data-deductions]');
-  const totalNetPayEl = document.querySelector('[data-total-net-pay]');
-  const circleProgress = document.querySelector('[data-circle-progress]');
-  const circlePercentage = document.querySelector('[data-circle-percentage]');
+function fillPayrollEmployeesTable(employees) {
+  const tbody = document.getElementById("payroll-employees-tbody");
+  if (!tbody) return;
 
-  if (!grossPayEl || !deductionsEl || !circleProgress || !circlePercentage) return;
-
-  // Parse the monetary values
-  const grossPay = parseMoney(grossPayEl.textContent);
-  const deductions = parseMoney(deductionsEl.textContent);
-
-  if (!grossPay || !deductions) return;
-
-  // Calculate net pay and percentage
-  const netPay = grossPay - deductions;
-  const netPercentage = (netPay / grossPay) * 100;
-
-  // Update total net pay display
-  if (totalNetPayEl) {
-    totalNetPayEl.textContent = formatMoney(netPay);
-  }
-
-  // Calculate circle progress (circumference = 2 * π * r = 2 * π * 40 ≈ 251.2)
-  const radius = 40;
-  const circumference = 2 * Math.PI * radius;
-  const progressLength = (netPercentage / 100) * circumference;
-
-  // Animate the circle
-  requestAnimationFrame(() => {
-    circleProgress.style.strokeDasharray = `${progressLength} ${circumference}`;
-    circlePercentage.textContent = `${Math.round(netPercentage)}%`;
+  tbody.innerHTML = "";
+  (employees || []).forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(row.employee_name)}</td>
+      <td>${escapeHtml(row.position)}</td>
+      <td>${escapeHtml(row.department)}</td>
+      <td class="is-numeric">${formatCurrency(row.net_salary)}</td>
+      <td>${escapeHtml(row.payment_status)}</td>
+      <td>payslip</td>
+    `;
+    tbody.appendChild(tr);
   });
+
+  if (tbody.children.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td colspan=\"6\">No payroll data for this period</td>";
+    tbody.appendChild(tr);
+  }
 }
 
-// Alternative version that accepts data from API
+async function updatePayrollPeriodDetails() {
+  const select = document.getElementById("pay-period");
+  if (!select) return null;
+
+  const periodId = Number(select.value);
+  const usePeriodId = Number.isFinite(periodId) && periodId > 0;
+  const query = usePeriodId ? `?period_id=${encodeURIComponent(periodId)}` : "";
+
+  try {
+    const res = await fetch(`/api/payroll/period-details${query}`);
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+
+    updatePayrollPeriodDetailsFromData({
+      payrollPeriod: `${data.start_date} to ${data.end_date}`,
+      totalEmployees: data.total_employees,
+      payDay: data.pay_date,
+      status: data.status,
+      grossPay: data.gross_pay,
+      deductions: data.deductions,
+      netPay: data.net_pay,
+    });
+    fillPayrollEmployeesTable(data.employees || []);
+
+    if (usePeriodId && data.period_id && String(data.period_id) !== select.value) {
+      select.value = String(data.period_id);
+    }
+
+    return data;
+  } catch (err) {
+    console.error("updatePayrollPeriodDetails:", err);
+    fillPayrollEmployeesTable([]);
+    return null;
+  }
+}
+
 function updatePayrollPeriodDetailsFromData(data) {
   const {
     payrollPeriod,
@@ -410,6 +483,7 @@ function updatePayrollPeriodDetailsFromData(data) {
     status,
     grossPay,
     deductions,
+    netPay,
   } = data;
 
   // Update info grid
@@ -418,29 +492,21 @@ function updatePayrollPeriodDetailsFromData(data) {
   const payDayEl = document.querySelector('[data-pay-day]');
   const statusEl = document.querySelector('[data-payroll-status]');
 
-  if (periodEl) periodEl.textContent = payrollPeriod || '—';
-  if (employeesEl) employeesEl.textContent = totalEmployees || '—';
-  if (payDayEl) payDayEl.innerHTML = payDay || '—';
+  if (periodEl) periodEl.textContent = payrollPeriod || "—";
+  if (employeesEl) employeesEl.textContent = String(totalEmployees ?? "—");
+  if (payDayEl) payDayEl.textContent = payDay || "—";
 
   if (statusEl && status) {
-    const indicator = statusEl.querySelector('.status_indicator');
-    statusEl.childNodes.forEach(node => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        node.textContent = status;
-      }
-    });
+    const indicator = document.createElement("span");
+    indicator.className = "status_indicator";
+    const normalized = String(status).toLowerCase();
+    if (normalized === "paid") indicator.classList.add("status_paid");
+    else if (normalized === "pending" || normalized === "processing") indicator.classList.add("status_pending");
+    else indicator.classList.add("status_scheduled");
 
-    // Update status indicator color
-    if (indicator) {
-      indicator.className = 'status_indicator';
-      if (status.toLowerCase() === 'paid') {
-        indicator.classList.add('status_paid');
-      } else if (status.toLowerCase() === 'pending') {
-        indicator.classList.add('status_pending');
-      } else {
-        indicator.classList.add('status_scheduled');
-      }
-    }
+    statusEl.innerHTML = "";
+    statusEl.appendChild(indicator);
+    statusEl.appendChild(document.createTextNode(` ${status}`));
   }
 
   // Update financial values
@@ -448,14 +514,17 @@ function updatePayrollPeriodDetailsFromData(data) {
   const deductionsEl = document.querySelector('[data-deductions]');
   const totalNetPayEl = document.querySelector('[data-total-net-pay]');
 
-  if (grossPayEl) grossPayEl.textContent = formatMoney(grossPay);
-  if (deductionsEl) deductionsEl.textContent = formatMoney(deductions);
+  const gross = Number(grossPay);
+  const ded = Number(deductions);
+  const net = Number.isFinite(Number(netPay)) ? Number(netPay) : gross - ded;
+
+  if (grossPayEl) grossPayEl.textContent = formatMoney(gross);
+  if (deductionsEl) deductionsEl.textContent = formatMoney(ded);
 
   // Calculate and update circle graph
-  const netPay = grossPay - deductions;
-  const netPercentage = (netPay / grossPay) * 100;
+  const netPercentage = gross > 0 ? (net / gross) * 100 : 0;
 
-  if (totalNetPayEl) totalNetPayEl.textContent = formatMoney(netPay);
+  if (totalNetPayEl) totalNetPayEl.textContent = formatMoney(net);
 
   const circleProgress = document.querySelector('[data-circle-progress]');
   const circlePercentage = document.querySelector('[data-circle-percentage]');
@@ -467,7 +536,7 @@ function updatePayrollPeriodDetailsFromData(data) {
 
     requestAnimationFrame(() => {
       circleProgress.style.strokeDasharray = `${progressLength} ${circumference}`;
-      circlePercentage.textContent = `${Math.round(netPercentage)}%`;
+      circlePercentage.textContent = `${Math.round(Math.max(0, netPercentage))}%`;
     });
   }
 }
@@ -488,6 +557,8 @@ window.updatePayrollPeriodDetailsFromData = updatePayrollPeriodDetailsFromData;
 function initReports() {
   const root = document.getElementById("reports-root");
   if (!root) return;
+  if (root.dataset.initialized === "1") return;
+  root.dataset.initialized = "1";
 
   const tabs = Array.from(root.querySelectorAll(".tab"));
   const cardsWrap = root.querySelector("#reports-cards");
@@ -544,7 +615,7 @@ function initReports() {
       desc: "Detailed information for a single employee (profile view).",
       tags: ["HR"],
       filters: [
-        { type: "employee", name: "employee", label: "Employee" },
+        { type: "employee", name: "employee_id", label: "Employee" },
         { type: "toggle", name: "include_contacts", label: "Include contact details" },
       ],
     },
@@ -584,6 +655,7 @@ function initReports() {
       desc: "Tax withheld per employee, suitable for filing/reconciliation.",
       tags: ["Compliance"],
       filters: [
+        { type: "employee", name: "employee_id", label: "Employee" },
         { type: "select", name: "tax_mode", label: "Tax mode", options: ["All", "PAYE", "Flat", "Other"] },
         { type: "toggle", name: "include_tin", label: "Include TIN/ID column" },
       ],
@@ -627,6 +699,11 @@ function initReports() {
 
   let activeCategory = "employee";
   let selectedReportId = null;
+  const reportOptions = {
+    employees: [],
+    departments: [],
+    statuses: [],
+  };
 
   function setModalOpen(which, open) {
     const el = which === "help" ? helpModal : modal;
@@ -634,6 +711,24 @@ function initReports() {
     el.hidden = !open;
     el.setAttribute("aria-hidden", String(!open));
     document.body.style.overflow = open ? "hidden" : "";
+  }
+
+  async function loadReportOptions() {
+    try {
+      const res = await fetch("/api/reports/options");
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      reportOptions.employees = Array.isArray(data.employees) ? data.employees : [];
+      reportOptions.departments = Array.isArray(data.departments) ? data.departments : [];
+      reportOptions.statuses = Array.isArray(data.statuses) ? data.statuses : [];
+
+      if (selectedReportId) {
+        const report = reports.find((r) => r.id === selectedReportId);
+        renderDynamicFilters(report || null);
+      }
+    } catch (err) {
+      console.error("loadReportOptions:", err);
+    }
   }
 
   function renderDynamicFilters(report) {
@@ -665,10 +760,24 @@ function initReports() {
         select.className = "select";
         select.id = id;
         select.name = f.name;
-        for (const opt of f.options) {
+
+        let options = Array.isArray(f.options) ? [...f.options] : [];
+        if (f.name === "department" && reportOptions.departments.length) {
+          options = ["All", ...reportOptions.departments];
+        }
+        if (f.name === "status" && reportOptions.statuses.length) {
+          options = ["All", ...reportOptions.statuses];
+        }
+
+        for (const opt of options) {
+          const normalizedOpt = String(opt);
           const o = document.createElement("option");
-          o.value = opt.toLowerCase().replace(/\s+/g, "_");
-          o.textContent = opt;
+          if (f.name === "department" || f.name === "status") {
+            o.value = normalizedOpt.toLowerCase() === "all" ? "all" : normalizedOpt;
+          } else {
+            o.value = normalizedOpt.toLowerCase().replace(/\s+/g, "_");
+          }
+          o.textContent = normalizedOpt;
           select.appendChild(o);
         }
         row.appendChild(select);
@@ -687,12 +796,18 @@ function initReports() {
         select.className = "select";
         select.id = id;
         select.name = f.name;
-        // Placeholder options (wire to API later)
-        ["Select…", "John Doe", "Jane Smith", "Alex Williams"].forEach((name, idx) => {
+
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = reportOptions.employees.length
+          ? "Select employee..."
+          : "No employees available";
+        select.appendChild(placeholder);
+
+        reportOptions.employees.forEach((emp) => {
           const o = document.createElement("option");
-          o.value = idx === 0 ? "" : name;
-          o.textContent = name;
-          if (idx === 0) o.disabled = false;
+          o.value = String(emp.id);
+          o.textContent = `${emp.name} (${emp.status})`;
           select.appendChild(o);
         });
         row.appendChild(select);
@@ -816,10 +931,11 @@ function initReports() {
 
   function mapReportType(reportId) {
     if (!reportId) return null;
+    if (reportId === "emp_listing") return "employee_listing";
+    if (reportId === "emp_profile") return "employee_profile";
     if (reportId === "emp_pay") return "employee_payroll";
-    if (reportId === "deductions_summary" || reportId === "tax_register") {
-      return "deductions_summary";
-    }
+    if (reportId === "deductions_summary") return "deductions_summary";
+    if (reportId === "tax_register") return "tax_register";
     if (reportId === "gross_expenses" || reportId === "growth_shrinkage" || reportId === "payroll_annual") {
       return "payroll_period_summary";
     }
@@ -870,6 +986,22 @@ function initReports() {
       report_type: reportType,
       format: backendFormat,
     };
+
+    const employeeIdRaw = String(formData.get("employee_id") || "").trim();
+    if (employeeIdRaw) {
+      const employeeId = Number(employeeIdRaw);
+      if (Number.isFinite(employeeId)) payload.employee_id = employeeId;
+    }
+
+    const department = String(formData.get("department") || "").trim();
+    if (department && department !== "all") {
+      payload.department = department;
+    }
+
+    const status = String(formData.get("status") || "").trim();
+    if (status && status !== "all") {
+      payload.status = status;
+    }
 
     const payrollPeriodSelect = document.getElementById("pay-period");
     if (payrollPeriodSelect && payrollPeriodSelect.value) {
@@ -962,6 +1094,7 @@ function initReports() {
   // Initialize
   customRange.hidden = range.value !== "custom";
   setCategory(activeCategory);
+  loadReportOptions();
 }
 
 // =========================

@@ -68,22 +68,22 @@ INSERT INTO employees (
 -- ======================
 INSERT INTO compensation (employee_id, base_salary, hourly_rate, effective_date, is_current) VALUES
 -- Salaried (annual salaries)
-(1, 185200.00, NULL, '2023-01-15', true),
-(2, 210000.00, NULL, '2024-01-01', true),
-(3, 195000.00, NULL, '2023-03-20', true),
-(4, 225000.00, NULL, '2024-01-01', true),
+(1, 1852000.00, NULL, '2023-01-15', true),
+(2, 2100000.00, NULL, '2024-01-01', true),
+(3, 1950000.00, NULL, '2023-03-20', true),
+(4, 2250000.00, NULL, '2024-01-01', true),
 
 -- Hourly (hourly rates)
-(5, NULL, 45.00, '2023-07-01', true),
-(6, NULL, 42.50, '2023-08-15', true),
+(5, NULL, 450.00, '2023-07-01', true),
+(6, NULL, 425.00, '2023-08-15', true),
 
 -- Contractors (biweekly amounts treated as base_salary)
-(7, 8500.00, NULL, '2024-01-01', true),
-(8, 7200.00, NULL, '2024-02-01', true),
+(7, 85000.00, NULL, '2024-01-01', true),
+(8, 72000.00, NULL, '2024-02-01', true),
 
 -- More salaried
-(9, 205000.00, NULL, '2022-09-15', true),
-(10, 190000.00, NULL, '2023-05-01', true);
+(9, 2050000.00, NULL, '2022-09-15', true),
+(10, 1900000.00, NULL, '2023-05-01', true);
 
 -- ======================
 -- EMPLOYEE SAVINGS (YTD contributions)
@@ -91,24 +91,24 @@ INSERT INTO compensation (employee_id, base_salary, hourly_rate, effective_date,
 -- Some employees contributing to savings
 INSERT INTO employee_savings (employee_id, contribution_amount, contribution_date) VALUES
 -- Ada Lovelace - contributing regularly
-(1, 500.00, '2024-01-15'),
-(1, 500.00, '2024-01-29'),
-(1, 500.00, '2024-02-12'),
+(1, 5000.00, '2024-01-15'),
+(1, 5000.00, '2024-01-29'),
+(1, 5000.00, '2024-02-12'),
 
 -- Grace Hopper - maxing out
-(2, 1000.00, '2024-01-15'),
-(2, 1000.00, '2024-01-29'),
-(2, 1000.00, '2024-02-12'),
+(2, 10000.00, '2024-01-15'),
+(2, 10000.00, '2024-01-29'),
+(2, 10000.00, '2024-02-12'),
 
 -- Katherine Johnson - moderate contributions
-(3, 300.00, '2024-01-15'),
-(3, 300.00, '2024-01-29'),
-(3, 300.00, '2024-02-12'),
+(3, 3000.00, '2024-01-15'),
+(3, 3000.00, '2024-01-29'),
+(3, 3000.00, '2024-02-12'),
 
 -- Margaret Hamilton - high contributions
-(4, 800.00, '2024-01-15'),
-(4, 800.00, '2024-01-29'),
-(4, 800.00, '2024-02-12');
+(4, 8000.00, '2024-01-15'),
+(4, 8000.00, '2024-01-29'),
+(4, 8000.00, '2024-02-12');
 
 -- ======================
 -- PAYROLL PERIODS
@@ -147,20 +147,20 @@ INSERT INTO payroll_adjustments (
     employee_id, payroll_period_id, adjustment_type, amount, description, created_by
 ) VALUES
 -- Bonus for Ada
-(1, 2, 'bonus', 5000.00, 'Q1 Performance Bonus', 'manager@company.com'),
+(1, 2, 'bonus', 500000.00, 'Q1 Performance Bonus', 'manager@company.com'),
 
 -- Unpaid leave deduction for Katherine
-(3, 3, 'leave_unpaid', -1500.00, 'Unpaid leave - 2 days', 'hr@company.com'),
+(3, 3, 'leave_unpaid', -15000.00, 'Unpaid leave - 2 days', 'hr@company.com'),
 
 -- Correction for Grace
-(2, 1, 'correction', 250.00, 'Payroll correction from previous period', 'payroll@company.com');
+(2, 1, 'correction', 2500.00, 'Payroll correction from previous period', 'payroll@company.com');
 
 -- ======================
 -- PAYROLL RUNS (Period 1 - Paid)
 -- ======================
 -- Calculate payroll for Period 1
 
--- Ada Lovelace (Salaried: $185,200 / 26 = $7,123.08)
+-- Ada Lovelace (Salaried biweekly: $71,230.80)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -168,12 +168,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     1, 1,
-    7123.08, 7123.08, 0, 0,
-    1068.46, 500.00, 500.00, 2068.46,
-    5054.62, 'paid', '2024-01-15'
+    71230.80, 71230.80, 0, 0,
+    10684.60, 5000.00, 5000.00, 20684.60,
+    50546.20, 'paid', '2024-01-15'
 );
 
--- Grace Hopper (Salaried: $210,000 / 26 = $8,076.92)
+-- Grace Hopper (Salaried biweekly: $80,769.20)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -181,12 +181,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     2, 1,
-    8326.92, 8076.92, 0, 250.00,  -- includes correction
-    1249.04, 1000.00, 1000.00, 3249.04,
-    5077.88, 'paid', '2024-01-15'
+    105769.20, 80769.20, 0, 25000.00,  -- includes correction
+    12490.40, 10000.00, 10000.00, 32490.40,
+    73278.80, 'paid', '2024-01-15'
 );
 
--- Katherine Johnson (Salaried: $195,000 / 26 = $7,500)
+-- Katherine Johnson (Salaried biweekly: $75,000.00)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -194,12 +194,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     3, 1,
-    7500.00, 7500.00, 0, 0,
-    1125.00, 300.00, 300.00, 1725.00,
-    5775.00, 'paid', '2024-01-15'
+    75000.00, 75000.00, 0, 0,
+    11250.00, 3000.00, 3000.00, 17250.00,
+    57750.00, 'paid', '2024-01-15'
 );
 
--- Margaret Hamilton (Salaried: $225,000 / 26 = $8,653.85)
+-- Margaret Hamilton (Salaried biweekly: $86,538.50)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -207,12 +207,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     4, 1,
-    8653.85, 8653.85, 0, 0,
-    1298.08, 800.00, 800.00, 2898.08,
-    5755.77, 'paid', '2024-01-15'
+    86538.50, 86538.50, 0, 0,
+    12980.80, 8000.00, 8000.00, 28980.80,
+    57557.70, 'paid', '2024-01-15'
 );
 
--- Hedy Lamarr (Hourly: 80 * $45 + 5 * $45 * 1.5 = $3,600 + $337.50 = $3,937.50)
+-- Hedy Lamarr (Hourly: 80 * $450 + 5 * $450 * 1.5 = $36,000 + $3,375 = $39,375)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -220,12 +220,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     5, 1,
-    3937.50, 3600.00, 337.50, 0,
-    590.63, 0, 0, 590.63,
-    3346.87, 'paid', '2024-01-15'
+    39375.00, 36000.00, 3375.00, 0,
+    5906.30, 0, 0, 5906.30,
+    33468.70, 'paid', '2024-01-15'
 );
 
--- Annie Easley (Hourly: 80 * $42.50 + 2 * $42.50 * 1.5 = $3,400 + $127.50 = $3,527.50)
+-- Annie Easley (Hourly: 80 * $425 + 2 * $425 * 1.5 = $34,000 + $1,275 = $35,275)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -233,12 +233,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     6, 1,
-    3527.50, 3400.00, 127.50, 0,
-    529.13, 0, 0, 529.13,
-    2998.37, 'paid', '2024-01-15'
+    35275.00, 34000.00, 1275.00, 0,
+    5291.30, 0, 0, 5291.30,
+    29983.70, 'paid', '2024-01-15'
 );
 
--- Dorothy Vaughan (Contractor: biweekly $8,500)
+-- Dorothy Vaughan (Contractor: biweekly $85,000)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -246,12 +246,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     7, 1,
-    8500.00, 8500.00, 0, 0,
-    1275.00, 0, 0, 1275.00,
-    7225.00, 'paid', '2024-01-15'
+    85000.00, 85000.00, 0, 0,
+    12750.00, 0, 0, 12750.00,
+    72250.00, 'paid', '2024-01-15'
 );
 
--- Mary Jackson (Contractor: biweekly $7,200)
+-- Mary Jackson (Contractor: biweekly $72,000)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -259,12 +259,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     8, 1,
-    7200.00, 7200.00, 0, 0,
-    1080.00, 0, 0, 1080.00,
-    6120.00, 'paid', '2024-01-15'
+    72000.00, 72000.00, 0, 0,
+    10800.00, 0, 0, 10800.00,
+    61200.00, 'paid', '2024-01-15'
 );
 
--- Radia Perlman (Salaried: $205,000 / 26 = $7,884.62)
+-- Radia Perlman (Salaried biweekly: $78,846.20)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -272,12 +272,12 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     9, 1,
-    7884.62, 7884.62, 0, 0,
-    1182.69, 0, 0, 1182.69,
-    6701.93, 'paid', '2024-01-15'
+    78846.20, 78846.20, 0, 0,
+    11826.90, 0, 0, 11826.90,
+    67019.30, 'paid', '2024-01-15'
 );
 
--- Frances Allen (Salaried: $190,000 / 26 = $7,307.69)
+-- Frances Allen (Salaried biweekly: $73,076.90)
 INSERT INTO payroll_runs (
     employee_id, payroll_period_id,
     gross_pay, regular_pay, overtime_pay, bonuses,
@@ -285,9 +285,9 @@ INSERT INTO payroll_runs (
     net_pay, payment_status, payment_date
 ) VALUES (
     10, 1,
-    7307.69, 7307.69, 0, 0,
-    1096.15, 0, 0, 1096.15,
-    6211.54, 'paid', '2024-01-15'
+    73076.90, 73076.90, 0, 0,
+    10961.50, 0, 0, 10961.50,
+    62115.40, 'paid', '2024-01-15'
 );
 
 -- ======================
@@ -295,7 +295,7 @@ INSERT INTO payroll_runs (
 -- ======================
 INSERT INTO audit_logs (table_name, record_id, action, user_name, changed_data) VALUES
 ('payroll_periods', 1, 'UPDATE', 'system', '{"status": {"old": "draft", "new": "paid"}}'::jsonb),
-('payroll_runs', 1, 'INSERT', 'payroll@company.com', '{"employee_id": 1, "net_pay": 5054.62}'::jsonb),
+('payroll_runs', 1, 'INSERT', 'payroll@company.com', '{"employee_id": 1, "net_pay": 50546.20}'::jsonb),
 ('employees', 1, 'UPDATE', 'hr@company.com', '{"phone": {"old": null, "new": "555-0101"}}'::jsonb);
 
 -- ======================

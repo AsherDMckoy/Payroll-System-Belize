@@ -11,23 +11,23 @@
 <div class="payroll_grid">
   <div class="payroll_expenses card">
 	  <h3 title="Total Payroll Paid" class="card_title">Payroll</h3>
-	  <span class="card_info">$350K</span>
-	  <p><small class="card_subtext">This Month(June 2025)</small></p>
+	  <span class="card_info" data-payroll-page-payroll-value>—</span>
+	  <p><small class="card_subtext" data-payroll-page-payroll-label>—</small></p>
 	</div>
 	<div class="payroll_contributions card">
 	  <h3 title="Total Contributions Paid" class="card_title">Contributions &amp; Incentives</h3>
-	  <span class="card_info">$50,000</span>
-	  <p><small class="card_subtext">This Month(June 2025)</small></p>
+	  <span class="card_info" data-payroll-page-contributions-value>—</span>
+	  <p><small class="card_subtext" data-payroll-page-contributions-label>—</small></p>
 	</div>
 	<div class="payroll_deductions card">
 	  <h3 title="Total Deductions Paid" class="card_title">Deductions &amp; Taxes</h3>
-	  <span class="card_info">$150K</span>
-	  <p><small class="card_subtext">This Month(June 2025)</small></p>
+	  <span class="card_info" data-payroll-page-deductions-value>—</span>
+	  <p><small class="card_subtext" data-payroll-page-deductions-label>—</small></p>
 	</div>
   <div class="payroll_employees card">
 	  <h3 title="Total Employees" class="card_title">Employees</h3>
-	  <span class="card_info">25</span>
-	  <p><small class="card_subtext">0 added since last month</small></p>
+	  <span class="card_info" data-payroll-page-employees-value>—</span>
+	  <p><small class="card_subtext" data-payroll-page-employees-label>—</small></p>
 	</div>
   {% include "payroll_breakdown_chart.html" %}
   <div class="payperiod_details card">
@@ -36,21 +36,21 @@
     <div class="pay_period_info_grid">
       <div class="info_item">
         <span class="info_label">Payroll Period</span>
-        <span class="info_value" data-payroll-period>Aug 1, 2025 - Aug 15, 2025</span>
+        <span class="info_value" data-payroll-period>—</span>
       </div>
       <div class="info_item">
         <span class="info_label">Total Employees</span>
-        <span class="info_value" data-total-employees>100</span>
+        <span class="info_value" data-total-employees>—</span>
       </div>
       <div class="info_item">
         <span class="info_label">Pay Day</span>
-        <span class="info_value" data-pay-day>Aug 15<sup>th</sup>, 2025</span>
+        <span class="info_value" data-pay-day>—</span>
       </div>
       <div class="info_item">
         <span class="info_label">Status</span>
         <span class="info_value status" data-payroll-status>
           <span class="status_indicator status_scheduled"></span>
-          Scheduled
+          —
         </span>
       </div>
     </div>
@@ -75,14 +75,14 @@
             <span class="legend_color gross"></span>
             <div class="legend_text">
               <span class="legend_label">Gross Pay</span>
-              <span class="legend_value" data-gross-pay>$123,000</span>
+              <span class="legend_value" data-gross-pay>—</span>
             </div>
           </div>
           <div class="legend_item">
             <span class="legend_color deductions"></span>
             <div class="legend_text">
               <span class="legend_label">Deductions</span>
-              <span class="legend_value" data-deductions>$90,000</span>
+              <span class="legend_value" data-deductions>—</span>
             </div>
           </div>
         </div>
@@ -96,13 +96,13 @@
           </svg>
         </div>
         <span class="total_label">Total Net Pay</span>
-        <span class="total_value" data-total-net-pay>$14,000,000</span>
+        <span class="total_value" data-total-net-pay>—</span>
       </div>
     </div>
   </div>
   <div class="employees_payroll_table">
     <table class="table">
-      <tbody>
+      <thead>
         <tr>
           <th class="table_header">Employee</th>
           <th class="table_header">Position</th>
@@ -111,13 +111,10 @@
           <th class="table_header">Payment Status</th>
           <th class="table_header">Actions</th>
         </tr>
+      </thead>
+      <tbody id="payroll-employees-tbody">
         <tr>
-          <td>Michael Smith</td>
-          <td>Manager</td>
-          <td>Engineering</td>
-          <td>$7200</td>
-          <td>Paid</td>
-          <td>payslip</td>
+          <td colspan="6">Loading…</td>
         </tr>
       </tbody>
     </table>

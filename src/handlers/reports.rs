@@ -11,7 +11,9 @@ use chrono::{NaiveDate, Utc};
 use rust_decimal::Decimal;
 use sqlx::{FromRow, PgPool};
 
-use crate::models::api::{GenerateReportRequest, GenerateReportResponse};
+use crate::models::api::{
+    GenerateReportRequest, GenerateReportResponse, ReportEmployeeOption, ReportFilterOptionsResponse,
+};
 
 type ApiResult<T> = Result<T, (StatusCode, String)>;
 
@@ -53,6 +55,105 @@ struct DeductionSummaryRow {
     total_deductions: Decimal,
 }
 
+#[derive(FromRow)]
+struct ReportOptionEmployeeRow {
+    id: i32,
+    first_name: String,
+    last_name: String,
+    status: String,
+}
+
+#[derive(FromRow)]
+struct EmployeeListingRow {
+    employee_number: String,
+    first_name: String,
+    last_name: String,
+    department: String,
+    position: String,
+    employment_type: String,
+    status: String,
+    hire_date: NaiveDate,
+    base_salary: Option<Decimal>,
+    hourly_rate: Option<Decimal>,
+}
+
+#[derive(FromRow)]
+struct EmployeeProfileRow {
+    employee_number: String,
+    first_name: String,
+    last_name: String,
+    email: String,
+    phone: Option<String>,
+    department: String,
+    position: String,
+    employment_type: String,
+    status: String,
+    hire_date: NaiveDate,
+    base_salary: Option<Decimal>,
+    hourly_rate: Option<Decimal>,
+}
+
+#[derive(FromRow)]
+struct TaxRegisterRow {
+    employee_number: String,
+    first_name: String,
+    last_name: String,
+    pay_date: NaiveDate,
+    gross_pay: Decimal,
+    tax_deduction: Decimal,
+}
+
+/// GET /api/reports/options
+pub async fn report_filter_options(
+    State(pool): State<PgPool>,
+) -> ApiResult<Json<ReportFilterOptionsResponse>> {
+    let employees = sqlx::query_as::<_, ReportOptionEmployeeRow>(
+        r#"
+        SELECT id, first_name, last_name, status
+        FROM employees
+        ORDER BY last_name, first_name
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    let departments = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT name
+        FROM departments
+        ORDER BY name
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    let statuses = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT DISTINCT status
+        FROM employees
+        ORDER BY status
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    Ok(Json(ReportFilterOptionsResponse {
+        employees: employees
+            .into_iter()
+            .map(|e| ReportEmployeeOption {
+                id: e.id,
+                name: format!("{} {}", e.first_name, e.last_name),
+                status: e.status,
+            })
+            .collect(),
+        departments,
+        statuses,
+    }))
+}
+
 /// POST /api/reports/generate
 pub async fn generate_report(
     State(pool): State<PgPool>,
@@ -75,11 +176,14 @@ pub async fn generate_report(
     let report = match req.report_type.as_str() {
         "payroll_period_summary" => payroll_period_summary_report(&pool, &req).await?,
         "employee_payroll" => employee_payroll_report(&pool, &req).await?,
+        "employee_listing" => employee_listing_report(&pool, &req).await?,
+        "employee_profile" => employee_profile_report(&pool, &req).await?,
         "deductions_summary" => deductions_summary_report(&pool, &req).await?,
+        "tax_register" => tax_register_report(&pool, &req).await?,
         _ => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                "Unsupported report_type. Use payroll_period_summary, employee_payroll, or deductions_summary.".to_string(),
+                "Unsupported report_type. Use payroll_period_summary, employee_payroll, employee_listing, employee_profile, deductions_summary, or tax_register.".to_string(),
             ))
         }
     };
@@ -341,12 +445,227 @@ async fn deductions_summary_report(
     })
 }
 
+async fn employee_listing_report(
+    pool: &PgPool,
+    req: &GenerateReportRequest,
+) -> ApiResult<ReportTable> {
+    let status = normalized_filter(req.status.as_deref());
+    let department = normalized_filter(req.department.as_deref());
+
+    let rows = sqlx::query_as::<_, EmployeeListingRow>(
+        r#"
+        SELECT
+            e.employee_number,
+            e.first_name,
+            e.last_name,
+            COALESCE(d.name, 'Unassigned') AS department,
+            COALESCE(e.position, 'Unassigned') AS position,
+            e.employment_type,
+            e.status,
+            e.hire_date,
+            c.base_salary,
+            c.hourly_rate
+        FROM employees e
+        LEFT JOIN departments d ON d.id = e.department_id
+        LEFT JOIN compensation c
+            ON c.employee_id = e.id
+            AND c.is_current = true
+        WHERE ($1::TEXT IS NULL OR e.status = $1)
+          AND ($2::TEXT IS NULL OR d.name = $2)
+          AND ($3::INT IS NULL OR e.id = $3)
+        ORDER BY e.last_name, e.first_name
+        "#,
+    )
+    .bind(status)
+    .bind(department)
+    .bind(req.employee_id)
+    .fetch_all(pool)
+    .await
+    .map_err(internal_error)?;
+
+    let headers = vec![
+        "employee_number".to_string(),
+        "employee_name".to_string(),
+        "department".to_string(),
+        "position".to_string(),
+        "employment_type".to_string(),
+        "status".to_string(),
+        "hire_date".to_string(),
+        "base_salary".to_string(),
+        "hourly_rate".to_string(),
+    ];
+
+    let rows = rows
+        .into_iter()
+        .map(|r| {
+            vec![
+                r.employee_number,
+                format!("{} {}", r.first_name, r.last_name),
+                r.department,
+                r.position,
+                r.employment_type,
+                r.status,
+                r.hire_date.to_string(),
+                money_opt(r.base_salary),
+                money_opt(r.hourly_rate),
+            ]
+        })
+        .collect();
+
+    Ok(ReportTable {
+        file_stem: "employee_listing".to_string(),
+        headers,
+        rows,
+    })
+}
+
+async fn employee_profile_report(
+    pool: &PgPool,
+    req: &GenerateReportRequest,
+) -> ApiResult<ReportTable> {
+    let employee_id = req.employee_id.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "employee_profile requires employee_id".to_string(),
+        )
+    })?;
+
+    let row = sqlx::query_as::<_, EmployeeProfileRow>(
+        r#"
+        SELECT
+            e.employee_number,
+            e.first_name,
+            e.last_name,
+            e.email,
+            e.phone,
+            COALESCE(d.name, 'Unassigned') AS department,
+            COALESCE(e.position, 'Unassigned') AS position,
+            e.employment_type,
+            e.status,
+            e.hire_date,
+            c.base_salary,
+            c.hourly_rate
+        FROM employees e
+        LEFT JOIN departments d ON d.id = e.department_id
+        LEFT JOIN compensation c
+            ON c.employee_id = e.id
+            AND c.is_current = true
+        WHERE e.id = $1
+        "#,
+    )
+    .bind(employee_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "Employee not found".to_string()))?;
+
+    let headers = vec![
+        "employee_number".to_string(),
+        "employee_name".to_string(),
+        "email".to_string(),
+        "phone".to_string(),
+        "department".to_string(),
+        "position".to_string(),
+        "employment_type".to_string(),
+        "status".to_string(),
+        "hire_date".to_string(),
+        "base_salary".to_string(),
+        "hourly_rate".to_string(),
+    ];
+
+    let rows = vec![vec![
+        row.employee_number,
+        format!("{} {}", row.first_name, row.last_name),
+        row.email,
+        row.phone.unwrap_or_else(|| "".to_string()),
+        row.department,
+        row.position,
+        row.employment_type,
+        row.status,
+        row.hire_date.to_string(),
+        money_opt(row.base_salary),
+        money_opt(row.hourly_rate),
+    ]];
+
+    Ok(ReportTable {
+        file_stem: format!("employee_profile_{employee_id}"),
+        headers,
+        rows,
+    })
+}
+
+async fn tax_register_report(
+    pool: &PgPool,
+    req: &GenerateReportRequest,
+) -> ApiResult<ReportTable> {
+    let rows = sqlx::query_as::<_, TaxRegisterRow>(
+        r#"
+        SELECT
+            e.employee_number,
+            e.first_name,
+            e.last_name,
+            pp.pay_date,
+            pr.gross_pay,
+            pr.tax_deduction
+        FROM payroll_runs pr
+        INNER JOIN employees e ON e.id = pr.employee_id
+        INNER JOIN payroll_periods pp ON pp.id = pr.payroll_period_id
+        WHERE ($1::INT IS NULL OR pp.id = $1)
+          AND ($2::DATE IS NULL OR pp.start_date >= $2)
+          AND ($3::DATE IS NULL OR pp.end_date <= $3)
+          AND ($4::INT IS NULL OR e.id = $4)
+        ORDER BY pp.pay_date DESC, e.last_name, e.first_name
+        "#,
+    )
+    .bind(req.payroll_period_id)
+    .bind(req.start_date)
+    .bind(req.end_date)
+    .bind(req.employee_id)
+    .fetch_all(pool)
+    .await
+    .map_err(internal_error)?;
+
+    let headers = vec![
+        "employee_number".to_string(),
+        "employee_name".to_string(),
+        "pay_date".to_string(),
+        "gross_pay".to_string(),
+        "tax_deduction".to_string(),
+    ];
+
+    let rows = rows
+        .into_iter()
+        .map(|r| {
+            vec![
+                r.employee_number,
+                format!("{} {}", r.first_name, r.last_name),
+                r.pay_date.to_string(),
+                money(r.gross_pay),
+                money(r.tax_deduction),
+            ]
+        })
+        .collect();
+
+    Ok(ReportTable {
+        file_stem: "tax_register".to_string(),
+        headers,
+        rows,
+    })
+}
+
 fn money(value: Decimal) -> String {
     value.round_dp(2).to_string()
 }
 
 fn money_opt(value: Option<Decimal>) -> String {
     value.map(money).unwrap_or_else(|| "0.00".to_string())
+}
+
+fn normalized_filter(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && *v != "all")
+        .map(ToOwned::to_owned)
 }
 
 fn to_csv(headers: &[String], rows: &[Vec<String>]) -> String {

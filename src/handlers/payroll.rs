@@ -1,16 +1,24 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Json,
+};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
+use serde::Deserialize;
 use sqlx::{FromRow, PgPool};
 
 use crate::models::api::{
-    GeneratePayrollRequest, GeneratePayrollResponse, PayrollPeriodItem, PayrollPeriodsResponse,
+    GeneratePayrollRequest, GeneratePayrollResponse, PayrollPeriodDetailsResponse,
+    PayrollPeriodEmployeeRow, PayrollPeriodItem, PayrollPeriodsResponse,
 };
 
 const BIWEEKLY_PERIODS_PER_YEAR: i64 = 26;
 const TAX_FREE_ALLOWANCE_ANNUAL: i64 = 29_000;
 const TAX_RATE_PERCENT: i64 = 15;
+const COMPANY_MATCH_CAP: i64 = 10_000;
 const OVERTIME_MULTIPLIER_X10: i64 = 15; // 1.5x represented as 15 / 10
+const HOURLY_FALLBACK_HOURS_PER_PERIOD: i64 = 80;
 
 type ApiResult<T> = Result<T, (StatusCode, String)>;
 
@@ -41,6 +49,153 @@ struct TimesheetHoursRow {
 struct AdjustmentSumsRow {
     earnings_adjustments: Decimal,
     deduction_adjustments: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PayrollPeriodDetailsQuery {
+    pub period_id: Option<i32>,
+}
+
+#[derive(FromRow)]
+struct PayrollPeriodTotalsRow {
+    gross_pay: Decimal,
+    total_deductions: Decimal,
+    net_pay: Decimal,
+}
+
+#[derive(FromRow)]
+struct PayrollPeriodEmployeeDbRow {
+    first_name: String,
+    last_name: String,
+    position: Option<String>,
+    department: Option<String>,
+    payment_status: Option<String>,
+    net_pay: Option<Decimal>,
+    employment_type: String,
+    base_salary: Option<Decimal>,
+    hourly_rate: Option<Decimal>,
+}
+
+/// GET /api/payroll/period-details?period_id=3
+pub async fn payroll_period_details(
+    State(pool): State<PgPool>,
+    Query(q): Query<PayrollPeriodDetailsQuery>,
+) -> ApiResult<Json<PayrollPeriodDetailsResponse>> {
+    let period = if let Some(period_id) = q.period_id {
+        sqlx::query_as::<_, PayrollPeriodRow>(
+            r#"
+            SELECT id, start_date, end_date, pay_date, status
+            FROM payroll_periods
+            WHERE id = $1
+            "#,
+        )
+        .bind(period_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "Payroll period not found".to_string(),
+            )
+        })?
+    } else {
+        sqlx::query_as::<_, PayrollPeriodRow>(
+            r#"
+            SELECT id, start_date, end_date, pay_date, status
+            FROM payroll_periods
+            ORDER BY end_date DESC
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&pool)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "No payroll periods found".to_string(),
+            )
+        })?
+    };
+
+    let totals = sqlx::query_as::<_, PayrollPeriodTotalsRow>(
+        r#"
+        SELECT
+            COALESCE(SUM(gross_pay), 0) AS gross_pay,
+            COALESCE(SUM(total_deductions), 0) AS total_deductions,
+            COALESCE(SUM(net_pay), 0) AS net_pay
+        FROM payroll_runs
+        WHERE payroll_period_id = $1
+        "#,
+    )
+    .bind(period.id)
+    .fetch_one(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    let employee_rows = sqlx::query_as::<_, PayrollPeriodEmployeeDbRow>(
+        r#"
+        SELECT
+            e.first_name,
+            e.last_name,
+            e.position,
+            d.name AS department,
+            pr.payment_status,
+            pr.net_pay,
+            e.employment_type,
+            c.base_salary,
+            c.hourly_rate
+        FROM employees e
+        LEFT JOIN departments d ON d.id = e.department_id
+        LEFT JOIN compensation c
+            ON c.employee_id = e.id
+            AND c.is_current = true
+        LEFT JOIN payroll_runs pr
+            ON pr.employee_id = e.id
+            AND pr.payroll_period_id = $1
+        WHERE e.status = 'active'
+        ORDER BY e.last_name, e.first_name
+        "#,
+    )
+    .bind(period.id)
+    .fetch_all(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    let employees = employee_rows
+        .into_iter()
+        .map(|row| PayrollPeriodEmployeeRow {
+            employee_name: format!("{} {}", row.first_name, row.last_name),
+            position: row.position.unwrap_or_else(|| "Unassigned".to_string()),
+            department: row.department.unwrap_or_else(|| "Unassigned".to_string()),
+            net_salary: decimal_to_f64(row.net_pay.unwrap_or_else(|| {
+                estimated_net_pay(
+                    row.employment_type.as_str(),
+                    row.base_salary,
+                    row.hourly_rate,
+                )
+            })),
+            payment_status: row
+                .payment_status
+                .as_deref()
+                .map(title_case_status)
+                .unwrap_or_else(|| "Pending".to_string()),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(PayrollPeriodDetailsResponse {
+        period_id: period.id,
+        start_date: period.start_date.format("%Y-%m-%d").to_string(),
+        end_date: period.end_date.format("%Y-%m-%d").to_string(),
+        pay_date: period.pay_date.format("%Y-%m-%d").to_string(),
+        status: title_case_status(period.status.as_str()),
+        total_employees: employees.len() as u32,
+        gross_pay: decimal_to_f64(totals.gross_pay),
+        deductions: decimal_to_f64(totals.total_deductions),
+        net_pay: decimal_to_f64(totals.net_pay),
+        employees,
+    }))
 }
 
 /// GET /api/payroll/periods
@@ -250,7 +405,7 @@ pub async fn generate_payroll(
         let gross_pay = money(regular_pay + overtime_pay + adjustment_sums.earnings_adjustments);
         let tax_deduction = biweekly_tax(annualized_income);
         let employee_savings = money(savings);
-        let company_match = employee_savings;
+        let company_match = money(employee_savings.min(Decimal::from(COMPANY_MATCH_CAP)));
 
         let mut deductions_total =
             money(tax_deduction + employee_savings + adjustment_sums.deduction_adjustments);
@@ -330,6 +485,52 @@ fn biweekly_tax(annualized_income: Decimal) -> Decimal {
     };
     let rate = Decimal::new(TAX_RATE_PERCENT, 2); // 0.15
     money((taxable_income * rate) / Decimal::from(BIWEEKLY_PERIODS_PER_YEAR))
+}
+
+fn estimated_net_pay(
+    employment_type: &str,
+    base_salary: Option<Decimal>,
+    hourly_rate: Option<Decimal>,
+) -> Decimal {
+    let periods_per_year = Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
+    let (gross_biweekly, annualized_income) = match employment_type {
+        "salaried" => {
+            let annual = base_salary.unwrap_or(Decimal::ZERO);
+            (annual / periods_per_year, annual)
+        }
+        "hourly" => {
+            let hourly = hourly_rate.unwrap_or(Decimal::ZERO);
+            let gross = hourly * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD);
+            (gross, gross * periods_per_year)
+        }
+        "contractor" => {
+            let biweekly = base_salary.unwrap_or(Decimal::ZERO);
+            (biweekly, biweekly * periods_per_year)
+        }
+        _ => (Decimal::ZERO, Decimal::ZERO),
+    };
+
+    (gross_biweekly - biweekly_tax(annualized_income))
+        .max(Decimal::ZERO)
+        .round_dp(2)
+}
+
+fn decimal_to_f64(value: Decimal) -> f64 {
+    value.to_string().parse::<f64>().unwrap_or(0.0)
+}
+
+fn title_case_status(status: &str) -> String {
+    let mut chars = status.chars();
+    match chars.next() {
+        Some(first) => {
+            format!(
+                "{}{}",
+                first.to_ascii_uppercase(),
+                chars.as_str().to_ascii_lowercase()
+            )
+        }
+        None => "Unknown".to_string(),
+    }
 }
 
 fn internal_error(err: sqlx::Error) -> (StatusCode, String) {
