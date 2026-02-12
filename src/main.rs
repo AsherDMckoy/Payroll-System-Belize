@@ -14,12 +14,16 @@ use crate::handlers::payroll::{
 use crate::handlers::reports::{generate_report, report_filter_options};
 use crate::models::views::{HtmlTemplate, IndexTemplate, LoginTemplate};
 use axum::{
+    extract::State,
+    http::StatusCode,
     middleware,
     response::IntoResponse,
     routing::{get, post},
-    Extension, Router,
+    Extension, Json, Router,
 };
 use models::views::Error404Template;
+use serde_json::json;
+use sqlx::postgres::PgPool;
 use tower_http::services::{ServeDir, ServeFile};
 
 #[tokio::main]
@@ -35,7 +39,7 @@ async fn main() -> Result<(), std::io::Error> {
     let run_migrations_on_startup = std::env::var("RUN_MIGRATIONS_ON_STARTUP")
         .ok()
         .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(false);
+        .unwrap_or(true);
     if run_migrations_on_startup {
         db::run_migrations(&pool)
             .await
@@ -67,6 +71,8 @@ async fn main() -> Result<(), std::io::Error> {
         .route_layer(middleware::from_fn_with_state(pool.clone(), require_auth));
 
     let app = Router::new()
+        .route("/health", get(health_handler))
+        .route("/ready", get(ready_handler))
         .route("/login", get(login_page))
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
@@ -82,7 +88,12 @@ async fn main() -> Result<(), std::io::Error> {
         .ok()
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(9000);
-    let addr: SocketAddr = format!("{host}:{port}").parse().unwrap();
+    let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|err| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Invalid bind address {host}:{port}: {err}"),
+        )
+    })?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("Listening on {}:{}", host, port);
 
@@ -99,6 +110,26 @@ async fn index_handler(Extension(user): Extension<AuthenticatedUser>) -> impl In
 
 async fn login_page() -> impl IntoResponse {
     HtmlTemplate(LoginTemplate)
+}
+
+async fn health_handler() -> impl IntoResponse {
+    (StatusCode::OK, Json(json!({"status":"ok"})))
+}
+
+async fn ready_handler(State(pool): State<PgPool>) -> impl IntoResponse {
+    match sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(&pool)
+        .await
+    {
+        Ok(_) => (StatusCode::OK, Json(json!({"status":"ready"}))),
+        Err(err) => {
+            log::error!("Readiness check failed: {err}");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"status":"not_ready"})),
+            )
+        }
+    }
 }
 
 // async fn test() -> Html<&'static str> {

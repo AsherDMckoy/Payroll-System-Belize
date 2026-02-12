@@ -27,6 +27,7 @@ services:
       APP_HOST: 0.0.0.0
       PORT: 9000
       RUST_LOG: info
+      RUN_MIGRATIONS_ON_STARTUP: "true"
     ports:
       - "9000:9000"
 
