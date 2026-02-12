@@ -4,10 +4,17 @@ Internal payroll management app built with Rust (`axum`) + PostgreSQL.
 
 ## Local Run
 
-1. Set `DATABASE_URL` in `.env`.
-2. Optional: set `RUN_MIGRATIONS_ON_STARTUP=false` if you want to skip startup migrations.
-3. Start PostgreSQL.
-4. Run:
+1. Create a `.env` file:
+
+```env
+DATABASE_URL=postgres://postgres@localhost/payroll_db
+RUN_MIGRATIONS_ON_STARTUP=true
+APP_HOST=0.0.0.0
+PORT=9000
+```
+
+2. Start PostgreSQL.
+3. Run:
 
 ```bash
 cargo run
@@ -28,6 +35,14 @@ docker compose up --build
 ```
 
 The app is exposed on `http://localhost:9000` and runs migrations on startup.
+
+## Lecturer Admin Login
+
+Use this account to access the system for grading/demo:
+
+- Full Name: `Tobi McGuire`
+- Username: `Bullly2003`
+- Password: `SpideySenes5!`
 
 ## Database Schema (ERD)
 
