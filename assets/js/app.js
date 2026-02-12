@@ -51,6 +51,22 @@ function formatBreakdownNumber(num) {
   }).format(n);
 }
 
+function formatPaydayBubbleDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+    }).format(parsed);
+  }
+
+  const firstSegment = raw.split(",")[0]?.trim();
+  return firstSegment || raw;
+}
+
 const CURRENT_YEAR = new Date().getFullYear();
 let activePayrollBreakdownYear = CURRENT_YEAR;
 
@@ -117,7 +133,9 @@ function applyDashboardOverviewData(data, grid, tbody) {
     const paydayDateEl = grid.querySelector("[data-payday-date]");
 
     if (bubble && paydayDateEl) {
-      paydayDateEl.textContent = pp.payday.date || "—";
+      const fullPaydayDate = pp.payday.date || "—";
+      paydayDateEl.textContent = formatPaydayBubbleDate(fullPaydayDate);
+      paydayDateEl.title = fullPaydayDate;
 
       const dayOfMonth = pp.payday.day_of_month;
       const totalDays = pp.payday.total_days_in_period;

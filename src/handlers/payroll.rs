@@ -69,6 +69,12 @@ struct PayrollRunsSummaryRow {
 }
 
 #[derive(FromRow)]
+struct ActiveEmployeePayrollStateRow {
+    missing_count: i64,
+    unpaid_count: i64,
+}
+
+#[derive(FromRow)]
 struct PayrollAuditDbRow {
     id: i32,
     created_at: chrono::NaiveDateTime,
@@ -176,6 +182,39 @@ pub async fn payroll_period_details(
     .await
     .map_err(internal_error)?;
 
+    let employee_state = sqlx::query_as::<_, ActiveEmployeePayrollStateRow>(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE pr.id IS NULL) AS missing_count,
+            COUNT(*) FILTER (WHERE pr.id IS NOT NULL AND pr.payment_status <> 'paid') AS unpaid_count
+        FROM employees e
+        LEFT JOIN payroll_runs pr
+            ON pr.employee_id = e.id
+            AND pr.payroll_period_id = $1
+        WHERE e.status = 'active'
+        "#,
+    )
+    .bind(period.id)
+    .fetch_one(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    let pending_employees = employee_state
+        .missing_count
+        .saturating_add(employee_state.unpaid_count);
+
+    let can_generate = if period.is_locked && pending_employees > 0 {
+        true
+    } else {
+        !period.is_locked && period.status != "paid"
+    };
+
+    let can_approve = !period.is_locked && period.status == "processing" && pending_employees > 0;
+    let can_execute = period.is_locked
+        && period.status == "approved"
+        && employee_state.missing_count == 0
+        && employee_state.unpaid_count > 0;
+
     let employee_rows = sqlx::query_as::<_, PayrollPeriodEmployeeDbRow>(
         r#"
         SELECT
@@ -233,9 +272,9 @@ pub async fn payroll_period_details(
         pay_date: period.pay_date.format("%Y-%m-%d").to_string(),
         status: title_case_status(period.status.as_str()),
         is_locked: period.is_locked,
-        can_generate: !period.is_locked && period.status != "paid",
-        can_approve: !period.is_locked && period.status == "processing" && run_count > 0,
-        can_execute: period.is_locked && period.status == "approved" && run_count > 0,
+        can_generate,
+        can_approve: can_approve && run_count > 0,
+        can_execute: can_execute && run_count > 0,
         total_employees: employees.len() as u32,
         gross_pay: decimal_to_f64(totals.gross_pay),
         deductions: decimal_to_f64(totals.total_deductions),
@@ -333,14 +372,37 @@ pub async fn generate_payroll(
         )
     })?;
 
-    if period.status == "paid" {
+    let employee_state = sqlx::query_as::<_, ActiveEmployeePayrollStateRow>(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE pr.id IS NULL) AS missing_count,
+            COUNT(*) FILTER (WHERE pr.id IS NOT NULL AND pr.payment_status <> 'paid') AS unpaid_count
+        FROM employees e
+        LEFT JOIN payroll_runs pr
+            ON pr.employee_id = e.id
+            AND pr.payroll_period_id = $1
+        WHERE e.status = 'active'
+        "#,
+    )
+    .bind(period.id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    let pending_employees = employee_state
+        .missing_count
+        .saturating_add(employee_state.unpaid_count);
+
+    if period.status == "paid" && pending_employees <= 0 {
         return Err((
             StatusCode::CONFLICT,
             "Cannot regenerate payroll for a paid period".to_string(),
         ));
     }
 
-    if period.is_locked {
+    if period.is_locked
+        && !(pending_employees > 0 && matches!(period.status.as_str(), "paid" | "approved"))
+    {
         return Err((
             StatusCode::CONFLICT,
             "Payroll period is locked. Unlocking is required before regenerating.".to_string(),
@@ -355,7 +417,7 @@ pub async fn generate_payroll(
     .await
     .map_err(internal_error)?;
 
-    if existing_runs > 0 && !req.force_recalculate {
+    if existing_runs > 0 && !req.force_recalculate && pending_employees <= 0 {
         return Err((
             StatusCode::CONFLICT,
             "Payroll runs already exist for this period. Set force_recalculate=true to regenerate."
@@ -371,26 +433,6 @@ pub async fn generate_payroll(
             .map_err(internal_error)?;
     }
 
-    sqlx::query("UPDATE payroll_periods SET status = 'processing' WHERE id = $1")
-        .bind(period.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(internal_error)?;
-
-    insert_audit_log(
-        &mut tx,
-        "payroll_periods",
-        Some(period.id),
-        "UPDATE",
-        requested_by,
-        json!({
-            "event": "payroll_processing_started",
-            "payroll_period_id": period.id,
-            "force_recalculate": req.force_recalculate,
-        }),
-    )
-    .await?;
-
     let employees = sqlx::query_as::<_, EmployeeCompensationRow>(
         r#"
         SELECT
@@ -402,13 +444,82 @@ pub async fn generate_payroll(
         LEFT JOIN compensation c
             ON c.employee_id = e.id
             AND c.is_current = true
+        LEFT JOIN payroll_runs pr
+            ON pr.employee_id = e.id
+            AND pr.payroll_period_id = $1
         WHERE e.status = 'active'
+          AND ($2::BOOL = true OR pr.id IS NULL OR pr.payment_status <> 'paid')
         ORDER BY e.id
         "#,
     )
+    .bind(period.id)
+    .bind(req.force_recalculate)
     .fetch_all(&mut *tx)
     .await
     .map_err(internal_error)?;
+
+    if employees.is_empty() {
+        return Err((
+            StatusCode::CONFLICT,
+            "No pending employees require payroll generation for this period.".to_string(),
+        ));
+    }
+
+    if period.is_locked && pending_employees > 0 {
+        sqlx::query(
+            r#"
+            UPDATE payroll_periods
+            SET status = 'processing',
+                is_locked = false,
+                locked_at = NULL,
+                locked_by = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(period.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(internal_error)?;
+
+        insert_audit_log(
+            &mut tx,
+            "payroll_periods",
+            Some(period.id),
+            "UPDATE",
+            requested_by,
+            json!({
+                "event": "payroll_reopened_for_pending_employees",
+                "payroll_period_id": period.id,
+                "previous_status": period.status,
+                "missing_employees": employee_state.missing_count,
+                "unpaid_runs": employee_state.unpaid_count,
+                "status": "processing",
+            }),
+        )
+        .await?;
+    } else {
+        sqlx::query("UPDATE payroll_periods SET status = 'processing' WHERE id = $1")
+            .bind(period.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(internal_error)?;
+    }
+
+    insert_audit_log(
+        &mut tx,
+        "payroll_periods",
+        Some(period.id),
+        "UPDATE",
+        requested_by,
+        json!({
+            "event": "payroll_processing_started",
+            "payroll_period_id": period.id,
+            "force_recalculate": req.force_recalculate,
+            "missing_employees": employee_state.missing_count,
+            "unpaid_runs": employee_state.unpaid_count,
+        }),
+    )
+    .await?;
 
     let periods_per_year = Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
     let overtime_multiplier = Decimal::new(OVERTIME_MULTIPLIER_X10, 1); // 1.5
@@ -416,6 +527,7 @@ pub async fn generate_payroll(
     let mut total_gross = Decimal::ZERO;
     let mut total_deductions = Decimal::ZERO;
     let mut total_net = Decimal::ZERO;
+    let mut employees_processed = 0usize;
 
     for employee in &employees {
         let timesheet = sqlx::query_as::<_, TimesheetHoursRow>(
@@ -535,7 +647,7 @@ pub async fn generate_payroll(
         }
         let net_pay = money(gross_pay - deductions_total);
 
-        sqlx::query(
+        let upsert_result = sqlx::query(
             r#"
             INSERT INTO payroll_runs (
                 employee_id,
@@ -552,6 +664,21 @@ pub async fn generate_payroll(
                 payment_status
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
+            ON CONFLICT (employee_id, payroll_period_id)
+            DO UPDATE
+            SET
+                gross_pay = EXCLUDED.gross_pay,
+                regular_pay = EXCLUDED.regular_pay,
+                overtime_pay = EXCLUDED.overtime_pay,
+                bonuses = EXCLUDED.bonuses,
+                tax_deduction = EXCLUDED.tax_deduction,
+                employee_savings = EXCLUDED.employee_savings,
+                company_match = EXCLUDED.company_match,
+                total_deductions = EXCLUDED.total_deductions,
+                net_pay = EXCLUDED.net_pay,
+                payment_status = 'pending',
+                payment_date = NULL
+            WHERE payroll_runs.payment_status <> 'paid'
             "#,
         )
         .bind(employee.id)
@@ -569,9 +696,12 @@ pub async fn generate_payroll(
         .await
         .map_err(internal_error)?;
 
-        total_gross += gross_pay;
-        total_deductions += deductions_total;
-        total_net += net_pay;
+        if upsert_result.rows_affected() > 0 {
+            employees_processed += 1;
+            total_gross += gross_pay;
+            total_deductions += deductions_total;
+            total_net += net_pay;
+        }
     }
 
     insert_audit_log(
@@ -583,7 +713,7 @@ pub async fn generate_payroll(
         json!({
             "event": "payroll_generated",
             "payroll_period_id": period.id,
-            "employees_processed": employees.len(),
+            "employees_processed": employees_processed,
             "total_gross_pay": money(total_gross).to_string(),
             "total_deductions": money(total_deductions).to_string(),
             "total_net_pay": money(total_net).to_string(),
@@ -597,7 +727,7 @@ pub async fn generate_payroll(
     Ok(Json(GeneratePayrollResponse {
         payroll_period_id: period.id,
         pay_date: period.pay_date.format("%Y-%m-%d").to_string(),
-        employees_processed: employees.len(),
+        employees_processed,
         total_gross_pay: money(total_gross).to_string(),
         total_deductions: money(total_deductions).to_string(),
         total_net_pay: money(total_net).to_string(),
@@ -810,11 +940,39 @@ pub async fn execute_payroll(
         ));
     }
 
+    let employee_state = sqlx::query_as::<_, ActiveEmployeePayrollStateRow>(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE pr.id IS NULL) AS missing_count,
+            COUNT(*) FILTER (WHERE pr.id IS NOT NULL AND pr.payment_status <> 'paid') AS unpaid_count
+        FROM employees e
+        LEFT JOIN payroll_runs pr
+            ON pr.employee_id = e.id
+            AND pr.payroll_period_id = $1
+        WHERE e.status = 'active'
+        "#,
+    )
+    .bind(period.id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    if employee_state.missing_count > 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            "Some active employees are missing payroll runs for this period. Generate payroll first."
+                .to_string(),
+        ));
+    }
+
     let run_summary = sqlx::query_as::<_, PayrollRunsSummaryRow>(
         r#"
         SELECT
-            COUNT(*) AS run_count,
-            COALESCE(SUM(net_pay), 0) AS total_net_pay
+            COUNT(*) FILTER (WHERE payment_status <> 'paid') AS run_count,
+            COALESCE(
+                SUM(CASE WHEN payment_status <> 'paid' THEN net_pay ELSE 0 END),
+                0
+            ) AS total_net_pay
         FROM payroll_runs
         WHERE payroll_period_id = $1
         "#,

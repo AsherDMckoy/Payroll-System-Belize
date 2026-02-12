@@ -38,6 +38,7 @@ struct EmployeeListDbRow {
     latest_net_pay: Option<Decimal>,
     latest_contributions: Option<Decimal>,
     latest_tax_paid: Option<Decimal>,
+    latest_savings_contribution: Option<Decimal>,
 }
 
 #[derive(FromRow)]
@@ -307,7 +308,8 @@ pub async fn employees_list(State(pool): State<PgPool>) -> ApiResult<Json<Employ
             lr.gross_pay AS latest_gross_pay,
             lr.net_pay AS latest_net_pay,
             lr.employee_savings AS latest_contributions,
-            lr.tax_deduction AS latest_tax_paid
+            lr.tax_deduction AS latest_tax_paid,
+            ls.latest_savings_contribution
         FROM employees e
         LEFT JOIN departments d
             ON d.id = e.department_id
@@ -327,6 +329,14 @@ pub async fn employees_list(State(pool): State<PgPool>) -> ApiResult<Json<Employ
             ORDER BY pp.end_date DESC NULLS LAST, pr.created_at DESC
             LIMIT 1
         ) lr ON true
+        LEFT JOIN LATERAL (
+            SELECT
+                es.contribution_amount AS latest_savings_contribution
+            FROM employee_savings es
+            WHERE es.employee_id = e.id
+            ORDER BY es.contribution_date DESC, es.id DESC
+            LIMIT 1
+        ) ls ON true
         ORDER BY e.last_name, e.first_name
         "#,
     )
@@ -345,14 +355,23 @@ pub async fn employees_list(State(pool): State<PgPool>) -> ApiResult<Json<Employ
                 estimated_gross_pay(&row.employment_type, row.base_salary, row.hourly_rate);
             let fallback_net =
                 estimated_net_pay(&row.employment_type, row.base_salary, row.hourly_rate);
+            let fallback_tax =
+                estimated_tax_pay(&row.employment_type, row.base_salary, row.hourly_rate);
+            let gross_pay = prefer_non_zero_value(row.latest_gross_pay, fallback_gross);
+            let net_pay = prefer_non_zero_value(row.latest_net_pay, fallback_net);
+            let tax_paid = prefer_non_zero_value(row.latest_tax_paid, fallback_tax);
+            let contributions = prefer_non_zero_value(
+                row.latest_contributions,
+                row.latest_savings_contribution.unwrap_or(Decimal::ZERO),
+            );
             EmployeeRow {
                 name: format!("{} {}", row.first_name, row.last_name),
                 position: row.position.unwrap_or_else(|| "Unassigned".to_string()),
                 department: row.department.unwrap_or_else(|| "Unassigned".to_string()),
-                gross_salary: decimal_to_f64(row.latest_gross_pay.unwrap_or(fallback_gross)),
-                net_salary: decimal_to_f64(row.latest_net_pay.unwrap_or(fallback_net)),
-                contributions: decimal_to_f64(row.latest_contributions.unwrap_or(Decimal::ZERO)),
-                tax_paid: decimal_to_f64(row.latest_tax_paid.unwrap_or(Decimal::ZERO)),
+                gross_salary: decimal_to_f64(gross_pay),
+                net_salary: decimal_to_f64(net_pay),
+                contributions: decimal_to_f64(contributions),
+                tax_paid: decimal_to_f64(tax_paid),
             }
         })
         .collect();
@@ -562,27 +581,28 @@ fn estimated_net_pay(
     base_salary: Option<Decimal>,
     hourly_rate: Option<Decimal>,
 ) -> Decimal {
-    let periods_per_year = Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
-
-    let (gross_biweekly, annualized_income) = match employment_type {
-        "salaried" => {
-            let annual = base_salary.unwrap_or(Decimal::ZERO);
-            (annual / periods_per_year, annual)
-        }
-        "hourly" => {
-            let hourly = hourly_rate.unwrap_or(Decimal::ZERO);
-            let gross = hourly * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD);
-            (gross, gross * periods_per_year)
-        }
-        "contractor" => {
-            let biweekly = base_salary.unwrap_or(Decimal::ZERO);
-            (biweekly, biweekly * periods_per_year)
-        }
-        _ => (Decimal::ZERO, Decimal::ZERO),
-    };
-
-    let tax = biweekly_tax(annualized_income);
+    let gross_biweekly = estimated_gross_pay(employment_type, base_salary, hourly_rate);
+    let tax = estimated_tax_pay(employment_type, base_salary, hourly_rate);
     (gross_biweekly - tax).max(Decimal::ZERO).round_dp(2)
+}
+
+fn estimated_tax_pay(
+    employment_type: &str,
+    base_salary: Option<Decimal>,
+    hourly_rate: Option<Decimal>,
+) -> Decimal {
+    let periods_per_year = Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
+    let annualized_income = match employment_type {
+        "salaried" => base_salary.unwrap_or(Decimal::ZERO),
+        "hourly" => {
+            hourly_rate.unwrap_or(Decimal::ZERO)
+                * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD)
+                * periods_per_year
+        }
+        "contractor" => base_salary.unwrap_or(Decimal::ZERO) * periods_per_year,
+        _ => Decimal::ZERO,
+    };
+    biweekly_tax(annualized_income)
 }
 
 fn estimated_gross_pay(
@@ -615,6 +635,14 @@ fn biweekly_tax(annualized_income: Decimal) -> Decimal {
 
 fn decimal_to_f64(value: Decimal) -> f64 {
     value.to_string().parse::<f64>().unwrap_or(0.0)
+}
+
+fn prefer_non_zero_value(primary: Option<Decimal>, fallback: Decimal) -> Decimal {
+    match primary {
+        Some(value) if value > Decimal::ZERO => value,
+        Some(value) if fallback <= Decimal::ZERO => value,
+        _ => fallback,
+    }
 }
 
 fn internal_error(err: sqlx::Error) -> (StatusCode, String) {

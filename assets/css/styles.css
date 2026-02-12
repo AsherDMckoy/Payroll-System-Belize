@@ -736,6 +736,11 @@ select:focus-visible {
   color: #fff;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   letter-spacing: 0.02em;
+  text-align: center;
+  line-height: 1.1;
+  max-width: 72px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .payday_label {

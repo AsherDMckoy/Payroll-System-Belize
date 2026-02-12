@@ -276,11 +276,11 @@ pub async fn ensure_default_admin(pool: &PgPool) -> Result<(), sqlx::Error> {
     }
 
     let username =
-        std::env::var("DEFAULT_ADMIN_USERNAME").unwrap_or_else(|_| "Bully2003".to_string());
+        std::env::var("DEFAULT_ADMIN_USERNAME").unwrap_or_else(|_| "Bullly2003".to_string());
     let full_name =
         std::env::var("DEFAULT_ADMIN_FULL_NAME").unwrap_or_else(|_| "Tobi McGuire".to_string());
     let password =
-        std::env::var("DEFAULT_ADMIN_PASSWORD").unwrap_or_else(|_| "SpideSenses5!".to_string());
+        std::env::var("DEFAULT_ADMIN_PASSWORD").unwrap_or_else(|_| "SpideySenes5!".to_string());
 
     let existing = sqlx::query_scalar::<_, i32>(
         r#"
