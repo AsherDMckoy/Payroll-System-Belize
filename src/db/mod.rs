@@ -25,6 +25,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_creation() {
+        if std::env::var("DATABASE_URL").is_err() {
+            return;
+        }
         let pool = create_pool().await;
         assert!(pool.is_ok());
     }

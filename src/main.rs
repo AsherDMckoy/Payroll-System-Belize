@@ -4,13 +4,20 @@ pub mod models;
 use std::net::SocketAddr;
 
 use crate::handlers::api::{dashboard_overview, employees_list, payroll_breakdown};
-use crate::handlers::payroll::{generate_payroll, payroll_period_details, payroll_periods};
+use crate::handlers::auth::{
+    ensure_default_admin, login, logout, me as auth_me, require_auth, AuthenticatedUser,
+};
+use crate::handlers::payroll::{
+    approve_payroll, execute_payroll, generate_payroll, payroll_audit_trail,
+    payroll_period_details, payroll_periods,
+};
 use crate::handlers::reports::{generate_report, report_filter_options};
-use crate::models::views::{HtmlTemplate, IndexTemplate};
+use crate::models::views::{HtmlTemplate, IndexTemplate, LoginTemplate};
 use axum::{
+    middleware,
     response::IntoResponse,
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use models::views::Error404Template;
 use tower_http::services::{ServeDir, ServeFile};
@@ -25,24 +32,45 @@ async fn main() -> Result<(), std::io::Error> {
         .await
         .expect("Failed to create database pool");
     println!("✓ Database connected!");
-    //db::run_migrations(&pool)
-    //    .await
-    //    .expect("Failed to run database migrations");
-    //println!("✓ Migrations complete!");
+    let run_migrations_on_startup = std::env::var("RUN_MIGRATIONS_ON_STARTUP")
+        .ok()
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false);
+    if run_migrations_on_startup {
+        db::run_migrations(&pool)
+            .await
+            .expect("Failed to run database migrations");
+        println!("✓ Migrations complete!");
+    }
 
-    let app = Router::new()
+    if let Err(err) = ensure_default_admin(&pool).await {
+        log::error!("Failed to ensure default admin user: {err}");
+    }
+
+    let protected_routes = Router::new()
         .route("/", get(index_handler))
         .route("/payroll", get(index_handler))
         .route("/employees", get(index_handler))
         .route("/reports", get(index_handler))
+        .route("/api/auth/me", get(auth_me))
         .route("/api/dashboard/overview", get(dashboard_overview))
         .route("/api/employees", get(employees_list))
         .route("/api/payroll-breakdown", get(payroll_breakdown))
         .route("/api/payroll/periods", get(payroll_periods))
         .route("/api/payroll/period-details", get(payroll_period_details))
+        .route("/api/payroll/audit", get(payroll_audit_trail))
         .route("/api/payroll/generate", post(generate_payroll))
+        .route("/api/payroll/approve", post(approve_payroll))
+        .route("/api/payroll/execute", post(execute_payroll))
         .route("/api/reports/options", get(report_filter_options))
         .route("/api/reports/generate", post(generate_report))
+        .route_layer(middleware::from_fn_with_state(pool.clone(), require_auth));
+
+    let app = Router::new()
+        .route("/login", get(login_page))
+        .route("/api/auth/login", post(login))
+        .route("/api/auth/logout", post(logout))
+        .merge(protected_routes)
         .route_service("/favicon.ico", ServeFile::new("assets/favicon.ico"))
         .nest_service("/assets", ServeDir::new("assets"))
         .fallback(fallback_handler)
@@ -62,11 +90,15 @@ async fn main() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-async fn index_handler() -> impl IntoResponse {
+async fn index_handler(Extension(user): Extension<AuthenticatedUser>) -> impl IntoResponse {
     let index = IndexTemplate {
-        name: "Morrigan Aensland".to_string(),
+        name: user.full_name,
     };
     HtmlTemplate(index)
+}
+
+async fn login_page() -> impl IntoResponse {
+    HtmlTemplate(LoginTemplate)
 }
 
 // async fn test() -> Html<&'static str> {

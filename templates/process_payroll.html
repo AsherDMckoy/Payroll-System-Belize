@@ -1,11 +1,17 @@
-<div class="payroll_header">
-  <h2>Process Payroll</h2>
+<div class="payroll_header section_header">
+  <div>
+    <h2 class="section_title">Process Payroll</h2>
+    <p class="section_subtitle">Choose a pay period, generate payroll, approve and lock it, then mark it paid.</p>
+  </div>
   <div class="payroll_functions">
-    <button class="new_payroll_btn">+ New Payroll</button>
-    <button class="generate_report_btn">Generate Report</button>
+    <label class="flow_label" for="pay-period">Pay period</label>
     <select class="payperiod_selection" id="pay-period" name="pay_period">
       <option value="01-08-2025">1st Aug, 2025 - 31st Aug, 2025</option>
     </select>
+    <button class="new_payroll_btn">Generate Payroll</button>
+    <button class="approve_payroll_btn">Approve Payroll</button>
+    <button class="mark_paid_btn">Mark as Paid</button>
+    <button class="generate_report_btn">Open Reports</button>
   </div>
 </div>
 <div class="payroll_grid">
@@ -53,6 +59,10 @@
           —
         </span>
       </div>
+      <div class="info_item">
+        <span class="info_label">Locked</span>
+        <span class="info_value" data-payroll-locked>—</span>
+      </div>
     </div>
     
     <div class="pay_period_summary">
@@ -98,6 +108,13 @@
         <span class="total_label">Total Net Pay</span>
         <span class="total_value" data-total-net-pay>—</span>
       </div>
+    </div>
+  </div>
+  <div class="payroll_audit_trail card">
+    <h3 class="card_title">Payroll Audit Trail</h3>
+    <p class="section_hint">Latest generation, approval, and payment events for this pay period.</p>
+    <div class="payroll_audit_list" id="payroll-audit-list">
+      <div class="payroll_audit_empty">No audit events yet.</div>
     </div>
   </div>
   <div class="employees_payroll_table">

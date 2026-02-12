@@ -101,6 +101,7 @@ pub struct PayrollPeriodItem {
     pub end_date: String,
     pub pay_date: String,
     pub status: String,
+    pub is_locked: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +109,7 @@ pub struct GeneratePayrollRequest {
     pub payroll_period_id: i32,
     #[serde(default)]
     pub force_recalculate: bool,
+    pub requested_by: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -119,6 +121,39 @@ pub struct GeneratePayrollResponse {
     pub total_deductions: String,
     pub total_net_pay: String,
     pub status: String,
+    pub is_locked: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApprovePayrollRequest {
+    pub payroll_period_id: i32,
+    pub requested_by: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ApprovePayrollResponse {
+    pub payroll_period_id: i32,
+    pub pay_date: String,
+    pub employees_ready: usize,
+    pub total_net_pay: String,
+    pub status: String,
+    pub is_locked: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecutePayrollRequest {
+    pub payroll_period_id: i32,
+    pub requested_by: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ExecutePayrollResponse {
+    pub payroll_period_id: i32,
+    pub pay_date: String,
+    pub employees_paid: usize,
+    pub total_net_pay: String,
+    pub status: String,
+    pub is_locked: bool,
 }
 
 #[derive(Serialize)]
@@ -128,6 +163,10 @@ pub struct PayrollPeriodDetailsResponse {
     pub end_date: String,
     pub pay_date: String,
     pub status: String,
+    pub is_locked: bool,
+    pub can_generate: bool,
+    pub can_approve: bool,
+    pub can_execute: bool,
     pub total_employees: u32,
     pub gross_pay: f64,
     pub deductions: f64,
@@ -142,6 +181,22 @@ pub struct PayrollPeriodEmployeeRow {
     pub department: String,
     pub net_salary: f64,
     pub payment_status: String,
+}
+
+#[derive(Serialize)]
+pub struct PayrollAuditTrailResponse {
+    pub events: Vec<PayrollAuditEvent>,
+}
+
+#[derive(Serialize)]
+pub struct PayrollAuditEvent {
+    pub id: i32,
+    pub created_at: String,
+    pub action: String,
+    pub event: String,
+    pub user_name: String,
+    pub payroll_period_id: Option<i32>,
+    pub details: serde_json::Value,
 }
 
 // ---- Report generation ----

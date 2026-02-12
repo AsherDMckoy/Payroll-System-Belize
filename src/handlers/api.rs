@@ -74,6 +74,11 @@ struct PayPeriodTotalsRow {
 }
 
 #[derive(FromRow)]
+struct YearToDateCompanyContributionsRow {
+    company_contributions_ytd: Decimal,
+}
+
+#[derive(FromRow)]
 struct MonthlyBreakdownDbRow {
     month: i32,
     total: Decimal,
@@ -192,6 +197,29 @@ pub async fn dashboard_overview(
         .await
         .map_err(internal_error)?;
 
+        // Keep period values when present; otherwise show YTD contributions so dashboard
+        // still reflects actual company-paid contributions for the active year.
+        let display_company_contributions = if period_totals.company_contributions > Decimal::ZERO {
+            period_totals.company_contributions
+        } else {
+            let ytd = sqlx::query_as::<_, YearToDateCompanyContributionsRow>(
+                r#"
+                SELECT
+                    COALESCE(SUM(pr.company_match), 0) AS company_contributions_ytd
+                FROM payroll_runs pr
+                INNER JOIN payroll_periods pp ON pp.id = pr.payroll_period_id
+                WHERE EXTRACT(YEAR FROM pp.pay_date)::INT = $1
+                  AND pp.pay_date <= $2
+                "#,
+            )
+            .bind(period.pay_date.year())
+            .bind(period.pay_date)
+            .fetch_one(&pool)
+            .await
+            .map_err(internal_error)?;
+            ytd.company_contributions_ytd
+        };
+
         PayPeriodInfo {
             working_days: business_days(period.start_date, period.end_date),
             working_hours: business_days(period.start_date, period.end_date) * 8,
@@ -210,7 +238,7 @@ pub async fn dashboard_overview(
                 ),
                 base_salary: format_money_label(period_totals.base_salary),
                 tax_paid: format_money_label(period_totals.tax_paid),
-                company_contributions: format_money_label(period_totals.company_contributions),
+                company_contributions: format_money_label(display_company_contributions),
                 total: format_money_label(period_totals.total),
             },
         }
@@ -565,7 +593,9 @@ fn estimated_gross_pay(
     let periods_per_year = Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
     match employment_type {
         "salaried" => base_salary.unwrap_or(Decimal::ZERO) / periods_per_year,
-        "hourly" => hourly_rate.unwrap_or(Decimal::ZERO) * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD),
+        "hourly" => {
+            hourly_rate.unwrap_or(Decimal::ZERO) * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD)
+        }
         "contractor" => base_salary.unwrap_or(Decimal::ZERO),
         _ => Decimal::ZERO,
     }

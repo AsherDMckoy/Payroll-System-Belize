@@ -1,16 +1,20 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use sqlx::{FromRow, PgPool};
+use serde_json::json;
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 
+use crate::handlers::auth::AuthenticatedUser;
 use crate::models::api::{
-    GeneratePayrollRequest, GeneratePayrollResponse, PayrollPeriodDetailsResponse,
-    PayrollPeriodEmployeeRow, PayrollPeriodItem, PayrollPeriodsResponse,
+    ApprovePayrollRequest, ApprovePayrollResponse, ExecutePayrollRequest, ExecutePayrollResponse,
+    GeneratePayrollRequest, GeneratePayrollResponse, PayrollAuditEvent, PayrollAuditTrailResponse,
+    PayrollPeriodDetailsResponse, PayrollPeriodEmployeeRow, PayrollPeriodItem,
+    PayrollPeriodsResponse,
 };
 
 const BIWEEKLY_PERIODS_PER_YEAR: i64 = 26;
@@ -19,6 +23,7 @@ const TAX_RATE_PERCENT: i64 = 15;
 const COMPANY_MATCH_CAP: i64 = 10_000;
 const OVERTIME_MULTIPLIER_X10: i64 = 15; // 1.5x represented as 15 / 10
 const HOURLY_FALLBACK_HOURS_PER_PERIOD: i64 = 80;
+const MIN_NET_PAY_CENTS: i64 = 1; // keep a positive non-zero net pay when gross pay > 0
 
 type ApiResult<T> = Result<T, (StatusCode, String)>;
 
@@ -29,6 +34,7 @@ struct PayrollPeriodRow {
     end_date: NaiveDate,
     pay_date: NaiveDate,
     status: String,
+    is_locked: bool,
 }
 
 #[derive(FromRow)]
@@ -51,9 +57,37 @@ struct AdjustmentSumsRow {
     deduction_adjustments: Decimal,
 }
 
+#[derive(FromRow)]
+struct CompanyMatchTotalsRow {
+    matched_to_date: Decimal,
+}
+
+#[derive(FromRow)]
+struct PayrollRunsSummaryRow {
+    run_count: i64,
+    total_net_pay: Decimal,
+}
+
+#[derive(FromRow)]
+struct PayrollAuditDbRow {
+    id: i32,
+    created_at: chrono::NaiveDateTime,
+    action: String,
+    event_name: Option<String>,
+    user_name: Option<String>,
+    record_id: Option<i32>,
+    changed_data: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PayrollPeriodDetailsQuery {
     pub period_id: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PayrollAuditQuery {
+    pub period_id: Option<i32>,
+    pub limit: Option<u16>,
 }
 
 #[derive(FromRow)]
@@ -84,7 +118,7 @@ pub async fn payroll_period_details(
     let period = if let Some(period_id) = q.period_id {
         sqlx::query_as::<_, PayrollPeriodRow>(
             r#"
-            SELECT id, start_date, end_date, pay_date, status
+            SELECT id, start_date, end_date, pay_date, status, is_locked
             FROM payroll_periods
             WHERE id = $1
             "#,
@@ -102,7 +136,7 @@ pub async fn payroll_period_details(
     } else {
         sqlx::query_as::<_, PayrollPeriodRow>(
             r#"
-            SELECT id, start_date, end_date, pay_date, status
+            SELECT id, start_date, end_date, pay_date, status, is_locked
             FROM payroll_periods
             ORDER BY end_date DESC
             LIMIT 1
@@ -128,6 +162,14 @@ pub async fn payroll_period_details(
         FROM payroll_runs
         WHERE payroll_period_id = $1
         "#,
+    )
+    .bind(period.id)
+    .fetch_one(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    let run_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM payroll_runs WHERE payroll_period_id = $1",
     )
     .bind(period.id)
     .fetch_one(&pool)
@@ -190,6 +232,10 @@ pub async fn payroll_period_details(
         end_date: period.end_date.format("%Y-%m-%d").to_string(),
         pay_date: period.pay_date.format("%Y-%m-%d").to_string(),
         status: title_case_status(period.status.as_str()),
+        is_locked: period.is_locked,
+        can_generate: !period.is_locked && period.status != "paid",
+        can_approve: !period.is_locked && period.status == "processing" && run_count > 0,
+        can_execute: period.is_locked && period.status == "approved" && run_count > 0,
         total_employees: employees.len() as u32,
         gross_pay: decimal_to_f64(totals.gross_pay),
         deductions: decimal_to_f64(totals.total_deductions),
@@ -202,16 +248,32 @@ pub async fn payroll_period_details(
 pub async fn payroll_periods(
     State(pool): State<PgPool>,
 ) -> ApiResult<Json<PayrollPeriodsResponse>> {
-    let periods = sqlx::query_as::<_, PayrollPeriodRow>(
+    let current_year = Utc::now().year();
+    let mut periods = sqlx::query_as::<_, PayrollPeriodRow>(
         r#"
-        SELECT id, start_date, end_date, pay_date, status
+        SELECT id, start_date, end_date, pay_date, status, is_locked
         FROM payroll_periods
+        WHERE EXTRACT(YEAR FROM start_date)::INT = $1
         ORDER BY start_date DESC
         "#,
     )
+    .bind(current_year)
     .fetch_all(&pool)
     .await
     .map_err(internal_error)?;
+
+    if periods.is_empty() {
+        periods = sqlx::query_as::<_, PayrollPeriodRow>(
+            r#"
+        SELECT id, start_date, end_date, pay_date, status, is_locked
+        FROM payroll_periods
+        ORDER BY start_date DESC
+        "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(internal_error)?;
+    }
 
     let items = periods
         .into_iter()
@@ -221,6 +283,7 @@ pub async fn payroll_periods(
             end_date: p.end_date.format("%Y-%m-%d").to_string(),
             pay_date: p.pay_date.format("%Y-%m-%d").to_string(),
             status: p.status,
+            is_locked: p.is_locked,
         })
         .collect();
 
@@ -230,8 +293,16 @@ pub async fn payroll_periods(
 /// POST /api/payroll/generate
 pub async fn generate_payroll(
     State(pool): State<PgPool>,
+    Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<GeneratePayrollRequest>,
 ) -> ApiResult<Json<GeneratePayrollResponse>> {
+    if !user.can_manage_payroll() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "You are not allowed to generate payroll".to_string(),
+        ));
+    }
+
     if req.payroll_period_id <= 0 {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -239,11 +310,13 @@ pub async fn generate_payroll(
         ));
     }
 
+    let requested_by = user.username.as_str();
+
     let mut tx = pool.begin().await.map_err(internal_error)?;
 
     let period = sqlx::query_as::<_, PayrollPeriodRow>(
         r#"
-        SELECT id, start_date, end_date, pay_date, status
+        SELECT id, start_date, end_date, pay_date, status, is_locked
         FROM payroll_periods
         WHERE id = $1
         FOR UPDATE
@@ -264,6 +337,13 @@ pub async fn generate_payroll(
         return Err((
             StatusCode::CONFLICT,
             "Cannot regenerate payroll for a paid period".to_string(),
+        ));
+    }
+
+    if period.is_locked {
+        return Err((
+            StatusCode::CONFLICT,
+            "Payroll period is locked. Unlocking is required before regenerating.".to_string(),
         ));
     }
 
@@ -296,6 +376,20 @@ pub async fn generate_payroll(
         .execute(&mut *tx)
         .await
         .map_err(internal_error)?;
+
+    insert_audit_log(
+        &mut tx,
+        "payroll_periods",
+        Some(period.id),
+        "UPDATE",
+        requested_by,
+        json!({
+            "event": "payroll_processing_started",
+            "payroll_period_id": period.id,
+            "force_recalculate": req.force_recalculate,
+        }),
+    )
+    .await?;
 
     let employees = sqlx::query_as::<_, EmployeeCompensationRow>(
         r#"
@@ -401,13 +495,43 @@ pub async fn generate_payroll(
 
         let gross_pay = money(regular_pay + overtime_pay + adjustment_sums.earnings_adjustments);
         let tax_deduction = biweekly_tax(gross_pay);
-        let employee_savings = money(savings);
-        let company_match = money(employee_savings.min(Decimal::from(COMPANY_MATCH_CAP)));
+        let minimum_net = if gross_pay > Decimal::ZERO {
+            Decimal::new(MIN_NET_PAY_CENTS, 2)
+        } else {
+            Decimal::ZERO
+        };
+        let max_deductions = (gross_pay - minimum_net).max(Decimal::ZERO);
 
-        let mut deductions_total =
-            money(tax_deduction + employee_savings + adjustment_sums.deduction_adjustments);
-        if deductions_total > gross_pay {
-            deductions_total = gross_pay;
+        let fixed_deductions = money(tax_deduction + adjustment_sums.deduction_adjustments);
+        let savings_capacity = (max_deductions - fixed_deductions).max(Decimal::ZERO);
+        let employee_savings = money(money(savings).min(savings_capacity));
+
+        let ytd_company_match = sqlx::query_as::<_, CompanyMatchTotalsRow>(
+            r#"
+            SELECT
+                COALESCE(SUM(pr.company_match), 0) AS matched_to_date
+            FROM payroll_runs pr
+            INNER JOIN payroll_periods pp ON pp.id = pr.payroll_period_id
+            WHERE pr.employee_id = $1
+              AND pr.payroll_period_id <> $2
+              AND EXTRACT(YEAR FROM pp.pay_date)::INT = $3
+              AND pp.pay_date < $4
+            "#,
+        )
+        .bind(employee.id)
+        .bind(period.id)
+        .bind(period.pay_date.year())
+        .bind(period.pay_date)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(internal_error)?;
+
+        let company_match =
+            capped_company_match(employee_savings, ytd_company_match.matched_to_date);
+
+        let mut deductions_total = money(fixed_deductions + employee_savings);
+        if deductions_total > max_deductions {
+            deductions_total = max_deductions;
         }
         let net_pay = money(gross_pay - deductions_total);
 
@@ -450,11 +574,23 @@ pub async fn generate_payroll(
         total_net += net_pay;
     }
 
-    sqlx::query("UPDATE payroll_periods SET status = 'approved' WHERE id = $1")
-        .bind(period.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(internal_error)?;
+    insert_audit_log(
+        &mut tx,
+        "payroll_periods",
+        Some(period.id),
+        "UPDATE",
+        requested_by,
+        json!({
+            "event": "payroll_generated",
+            "payroll_period_id": period.id,
+            "employees_processed": employees.len(),
+            "total_gross_pay": money(total_gross).to_string(),
+            "total_deductions": money(total_deductions).to_string(),
+            "total_net_pay": money(total_net).to_string(),
+            "status": "processing",
+        }),
+    )
+    .await?;
 
     tx.commit().await.map_err(internal_error)?;
 
@@ -465,8 +601,339 @@ pub async fn generate_payroll(
         total_gross_pay: money(total_gross).to_string(),
         total_deductions: money(total_deductions).to_string(),
         total_net_pay: money(total_net).to_string(),
-        status: "approved".to_string(),
+        status: "processing".to_string(),
+        is_locked: false,
     }))
+}
+
+/// POST /api/payroll/approve
+pub async fn approve_payroll(
+    State(pool): State<PgPool>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<ApprovePayrollRequest>,
+) -> ApiResult<Json<ApprovePayrollResponse>> {
+    if !user.can_manage_payroll() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "You are not allowed to approve payroll".to_string(),
+        ));
+    }
+
+    if req.payroll_period_id <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid payroll_period_id".to_string(),
+        ));
+    }
+
+    let requested_by = user.username.as_str();
+
+    let mut tx = pool.begin().await.map_err(internal_error)?;
+
+    let period = sqlx::query_as::<_, PayrollPeriodRow>(
+        r#"
+        SELECT id, start_date, end_date, pay_date, status, is_locked
+        FROM payroll_periods
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(req.payroll_period_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(internal_error)?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            "Payroll period not found".to_string(),
+        )
+    })?;
+
+    if period.status == "paid" {
+        return Err((
+            StatusCode::CONFLICT,
+            "Payroll period has already been paid".to_string(),
+        ));
+    }
+
+    if period.status == "draft" {
+        return Err((
+            StatusCode::CONFLICT,
+            "Generate payroll before approval.".to_string(),
+        ));
+    }
+
+    if period.is_locked {
+        return Err((
+            StatusCode::CONFLICT,
+            "Payroll period is already locked/approved.".to_string(),
+        ));
+    }
+
+    if period.status != "processing" && period.status != "approved" {
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "Payroll period in '{}' state cannot be approved.",
+                period.status
+            ),
+        ));
+    }
+
+    let run_summary = sqlx::query_as::<_, PayrollRunsSummaryRow>(
+        r#"
+        SELECT
+            COUNT(*) AS run_count,
+            COALESCE(SUM(net_pay), 0) AS total_net_pay
+        FROM payroll_runs
+        WHERE payroll_period_id = $1
+        "#,
+    )
+    .bind(period.id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    if run_summary.run_count <= 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            "No payroll runs found for this period. Generate payroll first.".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE payroll_periods
+        SET status = 'approved',
+            is_locked = true,
+            locked_at = NOW(),
+            locked_by = $2
+        WHERE id = $1
+        "#,
+    )
+    .bind(period.id)
+    .bind(requested_by)
+    .execute(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    insert_audit_log(
+        &mut tx,
+        "payroll_periods",
+        Some(period.id),
+        "UPDATE",
+        requested_by,
+        json!({
+            "event": "payroll_approved",
+            "payroll_period_id": period.id,
+            "employees_ready": run_summary.run_count,
+            "total_net_pay": money(run_summary.total_net_pay).to_string(),
+            "status": "approved",
+            "is_locked": true,
+        }),
+    )
+    .await?;
+
+    tx.commit().await.map_err(internal_error)?;
+
+    Ok(Json(ApprovePayrollResponse {
+        payroll_period_id: period.id,
+        pay_date: period.pay_date.format("%Y-%m-%d").to_string(),
+        employees_ready: run_summary.run_count.max(0) as usize,
+        total_net_pay: money(run_summary.total_net_pay).to_string(),
+        status: "approved".to_string(),
+        is_locked: true,
+    }))
+}
+
+/// POST /api/payroll/execute
+pub async fn execute_payroll(
+    State(pool): State<PgPool>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<ExecutePayrollRequest>,
+) -> ApiResult<Json<ExecutePayrollResponse>> {
+    if !user.can_manage_payroll() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "You are not allowed to execute payroll".to_string(),
+        ));
+    }
+
+    if req.payroll_period_id <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid payroll_period_id".to_string(),
+        ));
+    }
+
+    let requested_by = user.username.as_str();
+
+    let mut tx = pool.begin().await.map_err(internal_error)?;
+
+    let period = sqlx::query_as::<_, PayrollPeriodRow>(
+        r#"
+        SELECT id, start_date, end_date, pay_date, status, is_locked
+        FROM payroll_periods
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(req.payroll_period_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(internal_error)?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            "Payroll period not found".to_string(),
+        )
+    })?;
+
+    if period.status == "paid" {
+        return Err((
+            StatusCode::CONFLICT,
+            "Payroll period has already been paid".to_string(),
+        ));
+    }
+
+    if period.status != "approved" {
+        return Err((
+            StatusCode::CONFLICT,
+            "Only approved payroll periods can be executed".to_string(),
+        ));
+    }
+
+    if !period.is_locked {
+        return Err((
+            StatusCode::CONFLICT,
+            "Payroll period must be locked before execution. Approve payroll first.".to_string(),
+        ));
+    }
+
+    let run_summary = sqlx::query_as::<_, PayrollRunsSummaryRow>(
+        r#"
+        SELECT
+            COUNT(*) AS run_count,
+            COALESCE(SUM(net_pay), 0) AS total_net_pay
+        FROM payroll_runs
+        WHERE payroll_period_id = $1
+        "#,
+    )
+    .bind(period.id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    if run_summary.run_count <= 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            "No payroll runs found for this period. Generate payroll first.".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE payroll_runs
+        SET payment_status = 'paid',
+            payment_date = $2
+        WHERE payroll_period_id = $1
+          AND payment_status <> 'paid'
+        "#,
+    )
+    .bind(period.id)
+    .bind(period.pay_date)
+    .execute(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    sqlx::query(
+        r#"
+        UPDATE payroll_periods
+        SET status = 'paid',
+            is_locked = true
+        WHERE id = $1
+        "#,
+    )
+    .bind(period.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    insert_audit_log(
+        &mut tx,
+        "payroll_periods",
+        Some(period.id),
+        "UPDATE",
+        requested_by,
+        json!({
+            "event": "payroll_paid",
+            "payroll_period_id": period.id,
+            "employees_paid": run_summary.run_count,
+            "total_net_pay": money(run_summary.total_net_pay).to_string(),
+            "payment_date": period.pay_date,
+            "status": "paid",
+        }),
+    )
+    .await?;
+
+    tx.commit().await.map_err(internal_error)?;
+
+    Ok(Json(ExecutePayrollResponse {
+        payroll_period_id: period.id,
+        pay_date: period.pay_date.format("%Y-%m-%d").to_string(),
+        employees_paid: run_summary.run_count.max(0) as usize,
+        total_net_pay: money(run_summary.total_net_pay).to_string(),
+        status: "paid".to_string(),
+        is_locked: true,
+    }))
+}
+
+/// GET /api/payroll/audit?period_id=3&limit=50
+pub async fn payroll_audit_trail(
+    State(pool): State<PgPool>,
+    Query(q): Query<PayrollAuditQuery>,
+) -> ApiResult<Json<PayrollAuditTrailResponse>> {
+    let limit = q.limit.unwrap_or(50).clamp(1, 200) as i64;
+
+    let rows = sqlx::query_as::<_, PayrollAuditDbRow>(
+        r#"
+        SELECT
+            id,
+            created_at,
+            action,
+            changed_data ->> 'event' AS event_name,
+            user_name,
+            record_id,
+            changed_data
+        FROM audit_logs
+        WHERE table_name = 'payroll_periods'
+          AND ($1::INT IS NULL OR record_id = $1)
+        ORDER BY created_at DESC, id DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(q.period_id)
+    .bind(limit)
+    .fetch_all(&pool)
+    .await
+    .map_err(internal_error)?;
+
+    let events = rows
+        .into_iter()
+        .map(|row| PayrollAuditEvent {
+            id: row.id,
+            created_at: row.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+            action: row.action,
+            event: row
+                .event_name
+                .unwrap_or_else(|| "payroll_event".to_string()),
+            user_name: row.user_name.unwrap_or_else(|| "system".to_string()),
+            payroll_period_id: row.record_id,
+            details: row.changed_data.unwrap_or_else(|| json!({})),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(PayrollAuditTrailResponse { events }))
 }
 
 fn money(value: Decimal) -> Decimal {
@@ -485,6 +952,11 @@ fn biweekly_tax(gross_biweekly: Decimal) -> Decimal {
     money((taxable_income * rate) / Decimal::from(BIWEEKLY_PERIODS_PER_YEAR))
 }
 
+fn capped_company_match(employee_savings: Decimal, matched_to_date: Decimal) -> Decimal {
+    let remaining = (Decimal::from(COMPANY_MATCH_CAP) - matched_to_date).max(Decimal::ZERO);
+    money(employee_savings.max(Decimal::ZERO).min(remaining))
+}
+
 fn estimated_net_pay(
     employment_type: &str,
     base_salary: Option<Decimal>,
@@ -500,9 +972,7 @@ fn estimated_net_pay(
             let hourly = hourly_rate.unwrap_or(Decimal::ZERO);
             hourly * Decimal::from(HOURLY_FALLBACK_HOURS_PER_PERIOD)
         }
-        "contractor" => {
-            base_salary.unwrap_or(Decimal::ZERO)
-        }
+        "contractor" => base_salary.unwrap_or(Decimal::ZERO),
         _ => Decimal::ZERO,
     };
 
@@ -529,9 +999,65 @@ fn title_case_status(status: &str) -> String {
     }
 }
 
+async fn insert_audit_log(
+    tx: &mut Transaction<'_, Postgres>,
+    table_name: &str,
+    record_id: Option<i32>,
+    action: &str,
+    user_name: &str,
+    changed_data: serde_json::Value,
+) -> ApiResult<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO audit_logs (table_name, record_id, action, user_name, changed_data)
+        VALUES ($1, $2, $3, $4, $5::jsonb)
+        "#,
+    )
+    .bind(table_name)
+    .bind(record_id)
+    .bind(action)
+    .bind(user_name)
+    .bind(changed_data)
+    .execute(&mut **tx)
+    .await
+    .map_err(internal_error)?;
+    Ok(())
+}
+
 fn internal_error(err: sqlx::Error) -> (StatusCode, String) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("Database error: {err}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn biweekly_tax_follows_flat_rule_after_allowance() {
+        let gross_biweekly = Decimal::from(100_000) / Decimal::from(BIWEEKLY_PERIODS_PER_YEAR);
+        let tax = biweekly_tax(gross_biweekly);
+
+        assert_eq!(tax, Decimal::new(40962, 2));
+    }
+
+    #[test]
+    fn company_match_is_capped_by_remaining_annual_limit() {
+        let this_period_savings = Decimal::from(8_000);
+        let already_matched = Decimal::from(7_500);
+        let company_match = capped_company_match(this_period_savings, already_matched);
+
+        assert_eq!(company_match, Decimal::from(2_500));
+    }
+
+    #[test]
+    fn company_match_is_zero_when_cap_is_exhausted() {
+        let this_period_savings = Decimal::from(2_000);
+        let already_matched = Decimal::from(10_000);
+        let company_match = capped_company_match(this_period_savings, already_matched);
+
+        assert_eq!(company_match, Decimal::ZERO);
+    }
 }

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Payroll Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, sans-serif;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 45%),
+          radial-gradient(circle at bottom right, rgba(124, 92, 255, 0.16), transparent 42%),
+          #0b1220;
+        color: #e6edf7;
+      }
+      .card {
+        width: min(400px, calc(100vw - 2rem));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px;
+        padding: 1.2rem;
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(4px);
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.35rem;
+      }
+      p {
+        margin: 0 0 1rem;
+        color: rgba(230, 237, 247, 0.78);
+        font-size: 0.9rem;
+      }
+      label {
+        display: block;
+        font-size: 0.8rem;
+        margin-bottom: 0.35rem;
+        color: rgba(230, 237, 247, 0.78);
+      }
+      input {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        color: #e6edf7;
+        padding: 0.65rem 0.75rem;
+        margin-bottom: 0.85rem;
+      }
+      button {
+        width: 100%;
+        border: 1px solid rgba(124, 92, 255, 0.42);
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(124, 92, 255, 0.35), rgba(124, 92, 255, 0.22));
+        color: #f5f8ff;
+        padding: 0.7rem 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .error {
+        min-height: 1.2rem;
+        margin-top: 0.75rem;
+        color: #ff9f9f;
+        font-size: 0.82rem;
+      }
+    </style>
+  </head>
+  <body>
+    <form class="card" id="login-form">
+      <h1>Payroll System Login</h1>
+      <p>Sign in to continue.</p>
+
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" required />
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+      <button id="login-btn" type="submit">Sign in</button>
+      <div id="login-error" class="error"></div>
+    </form>
+
+    <script>
+      const form = document.getElementById("login-form");
+      const errorEl = document.getElementById("login-error");
+      const btn = document.getElementById("login-btn");
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        errorEl.textContent = "";
+        btn.disabled = true;
+        btn.textContent = "Signing in...";
+
+        const payload = {
+          username: document.getElementById("username").value,
+          password: document.getElementById("password").value,
+        };
+
+        try {
+          const res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || "Login failed");
+          }
+
+          window.location.href = "/";
+        } catch (err) {
+          errorEl.textContent = String(err.message || err);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Sign in";
+        }
+      });
+    </script>
+  </body>
+</html>

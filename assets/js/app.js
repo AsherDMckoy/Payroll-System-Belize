@@ -6,6 +6,20 @@ document.documentElement.style.setProperty(
   headerHeight + "px",
 );
 
+const logoutBtn = document.getElementById("logout-btn");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", async () => {
+    logoutBtn.disabled = true;
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.error("logout:", err);
+    } finally {
+      window.location.href = "/login";
+    }
+  });
+}
+
 // =============================
 // API-driven data (JSON from Rust backend)
 // =============================
@@ -326,7 +340,8 @@ let payrollActionsWired = false;
 
 function formatPeriodLabel(period) {
   const status = period.status ? ` (${period.status})` : "";
-  return `${period.start_date} to ${period.end_date}${status}`;
+  const lock = period.is_locked ? " [Locked]" : "";
+  return `${period.start_date} to ${period.end_date}${status}${lock}`;
 }
 
 async function loadPayrollPeriods() {
@@ -386,6 +401,7 @@ async function generatePayrollForSelectedPeriod() {
     body: JSON.stringify({
       payroll_period_id: payrollPeriodId,
       force_recalculate: false,
+      requested_by: "internal_ui",
     }),
   });
 
@@ -397,11 +413,142 @@ async function generatePayrollForSelectedPeriod() {
   return res.json();
 }
 
+async function approvePayrollForSelectedPeriod() {
+  const select = document.getElementById("pay-period");
+  if (!select || !select.value) {
+    alert("Select a payroll period before approval.");
+    return;
+  }
+
+  const payrollPeriodId = Number(select.value);
+  if (!Number.isFinite(payrollPeriodId)) {
+    alert("Selected payroll period is invalid.");
+    return;
+  }
+
+  const res = await fetch("/api/payroll/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      payroll_period_id: payrollPeriodId,
+      requested_by: "internal_ui",
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Failed to approve payroll.");
+  }
+
+  return res.json();
+}
+
+async function executePayrollForSelectedPeriod() {
+  const select = document.getElementById("pay-period");
+  if (!select || !select.value) {
+    alert("Select a payroll period before executing payroll.");
+    return;
+  }
+
+  const payrollPeriodId = Number(select.value);
+  if (!Number.isFinite(payrollPeriodId)) {
+    alert("Selected payroll period is invalid.");
+    return;
+  }
+
+  const res = await fetch("/api/payroll/execute", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      payroll_period_id: payrollPeriodId,
+      requested_by: "internal_ui",
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Failed to execute payroll.");
+  }
+
+  return res.json();
+}
+
+function updatePayrollActionState(canGenerate, canApprove, canExecute) {
+  const newPayrollBtn = document.querySelector(".new_payroll_btn");
+  const approveBtn = document.querySelector(".approve_payroll_btn");
+  const markPaidBtn = document.querySelector(".mark_paid_btn");
+
+  if (newPayrollBtn) newPayrollBtn.disabled = !canGenerate;
+  if (approveBtn) approveBtn.disabled = !canApprove;
+  if (markPaidBtn) markPaidBtn.disabled = !canExecute;
+}
+
+function formatAuditEventName(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "Payroll Event";
+  return raw
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function renderPayrollAuditEvents(events) {
+  const list = document.getElementById("payroll-audit-list");
+  if (!list) return;
+
+  const safeEvents = Array.isArray(events) ? events : [];
+  if (!safeEvents.length) {
+    list.innerHTML = "<div class=\"payroll_audit_empty\">No audit events for this period yet.</div>";
+    return;
+  }
+
+  list.innerHTML = "";
+  safeEvents.forEach((event) => {
+    const when = escapeHtml(event.created_at || "Unknown time");
+    const eventName = escapeHtml(formatAuditEventName(event.event));
+    const statusText = event?.details?.status ? ` (${escapeHtml(event.details.status)})` : "";
+    const byUser = escapeHtml(event.user_name || "system");
+    const action = escapeHtml(event.action || "UPDATE");
+
+    const row = document.createElement("div");
+    row.className = "payroll_audit_item";
+    row.innerHTML = `
+      <div class="payroll_audit_when">${when}</div>
+      <div class="payroll_audit_event">${eventName}${statusText}</div>
+      <div class="payroll_audit_meta">${action} by ${byUser}</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function loadPayrollAuditTrail(periodId) {
+  const list = document.getElementById("payroll-audit-list");
+  if (!list) return;
+
+  const query = new URLSearchParams();
+  if (Number.isFinite(periodId) && periodId > 0) {
+    query.set("period_id", String(periodId));
+  }
+  query.set("limit", "25");
+
+  try {
+    const res = await fetch(`/api/payroll/audit?${query.toString()}`);
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    renderPayrollAuditEvents(data.events);
+  } catch (err) {
+    console.error("loadPayrollAuditTrail:", err);
+    list.innerHTML = "<div class=\"payroll_audit_empty\">Unable to load audit trail right now.</div>";
+  }
+}
+
 function wirePayrollActions() {
   if (payrollActionsWired) return;
   payrollActionsWired = true;
 
   const newPayrollBtn = document.querySelector(".new_payroll_btn");
+  const approveBtn = document.querySelector(".approve_payroll_btn");
+  const markPaidBtn = document.querySelector(".mark_paid_btn");
+  const reportsBtn = document.querySelector(".generate_report_btn");
   const payPeriodSelect = document.getElementById("pay-period");
   if (!newPayrollBtn || !payPeriodSelect) return;
 
@@ -424,16 +571,72 @@ function wirePayrollActions() {
       const overviewData = await loadDashboardOverview();
       if (overviewData) applyPayrollPageSummaryCards(overviewData);
       await loadPayrollPeriods();
-      await updatePayrollPeriodDetails();
       loadEmployees();
     } catch (err) {
       console.error("generatePayrollForSelectedPeriod:", err);
       alert(`Payroll generation failed: ${err.message || err}`);
     } finally {
-      newPayrollBtn.disabled = false;
       newPayrollBtn.textContent = originalText;
+      await updatePayrollPeriodDetails();
     }
   });
+
+  if (approveBtn) {
+    approveBtn.addEventListener("click", async () => {
+      const originalText = approveBtn.textContent;
+      approveBtn.disabled = true;
+      approveBtn.textContent = "Approving...";
+
+      try {
+        const result = await approvePayrollForSelectedPeriod();
+        if (result) {
+          alert(
+            `Payroll approved and locked.\nEmployees Ready: ${result.employees_ready}\nTotal Net Pay: ${result.total_net_pay}`,
+          );
+        }
+        await loadPayrollPeriods();
+      } catch (err) {
+        console.error("approvePayrollForSelectedPeriod:", err);
+        alert(`Payroll approval failed: ${err.message || err}`);
+      } finally {
+        approveBtn.textContent = originalText;
+        await updatePayrollPeriodDetails();
+      }
+    });
+  }
+
+  if (markPaidBtn) {
+    markPaidBtn.addEventListener("click", async () => {
+      const originalText = markPaidBtn.textContent;
+      markPaidBtn.disabled = true;
+      markPaidBtn.textContent = "Paying...";
+
+      try {
+        const result = await executePayrollForSelectedPeriod();
+        if (result) {
+          alert(
+            `Payroll executed.\nEmployees Paid: ${result.employees_paid}\nTotal Net Pay: ${result.total_net_pay}`,
+          );
+        }
+        const overviewData = await loadDashboardOverview();
+        if (overviewData) applyPayrollPageSummaryCards(overviewData);
+        await loadPayrollPeriods();
+        loadEmployees();
+      } catch (err) {
+        console.error("executePayrollForSelectedPeriod:", err);
+        alert(`Payroll execution failed: ${err.message || err}`);
+      } finally {
+        markPaidBtn.textContent = originalText;
+        await updatePayrollPeriodDetails();
+      }
+    });
+  }
+
+  if (reportsBtn) {
+    reportsBtn.addEventListener("click", () => {
+      window.location.href = "/reports";
+    });
+  }
 }
 
 // Payroll process page init – populate chart so it works when landing directly on /payroll
@@ -489,6 +692,10 @@ async function updatePayrollPeriodDetails() {
       totalEmployees: data.total_employees,
       payDay: data.pay_date,
       status: data.status,
+      isLocked: Boolean(data.is_locked),
+      canGenerate: Boolean(data.can_generate),
+      canApprove: Boolean(data.can_approve),
+      canExecute: Boolean(data.can_execute),
       grossPay: data.gross_pay,
       deductions: data.deductions,
       netPay: data.net_pay,
@@ -499,10 +706,17 @@ async function updatePayrollPeriodDetails() {
       select.value = String(data.period_id);
     }
 
+    const resolvedPeriodId = Number.isFinite(periodId) && periodId > 0
+      ? periodId
+      : Number(data.period_id);
+    await loadPayrollAuditTrail(resolvedPeriodId);
+
     return data;
   } catch (err) {
     console.error("updatePayrollPeriodDetails:", err);
+    updatePayrollActionState(false, false, false);
     fillPayrollEmployeesTable([]);
+    renderPayrollAuditEvents([]);
     return null;
   }
 }
@@ -513,6 +727,10 @@ function updatePayrollPeriodDetailsFromData(data) {
     totalEmployees,
     payDay,
     status,
+    isLocked,
+    canGenerate,
+    canApprove,
+    canExecute,
     grossPay,
     deductions,
     netPay,
@@ -523,10 +741,12 @@ function updatePayrollPeriodDetailsFromData(data) {
   const employeesEl = document.querySelector('[data-total-employees]');
   const payDayEl = document.querySelector('[data-pay-day]');
   const statusEl = document.querySelector('[data-payroll-status]');
+  const lockedEl = document.querySelector('[data-payroll-locked]');
 
   if (periodEl) periodEl.textContent = payrollPeriod || "—";
   if (employeesEl) employeesEl.textContent = String(totalEmployees ?? "—");
   if (payDayEl) payDayEl.textContent = payDay || "—";
+  if (lockedEl) lockedEl.textContent = isLocked ? "Yes" : "No";
 
   if (statusEl && status) {
     const indicator = document.createElement("span");
@@ -540,6 +760,8 @@ function updatePayrollPeriodDetailsFromData(data) {
     statusEl.appendChild(indicator);
     statusEl.appendChild(document.createTextNode(` ${status}`));
   }
+
+  updatePayrollActionState(Boolean(canGenerate), Boolean(canApprove), Boolean(canExecute));
 
   // Update financial values
   const grossPayEl = document.querySelector('[data-gross-pay]');
@@ -598,7 +820,10 @@ function initReports() {
   const listSubtitle = root.querySelector("#reports-list-subtitle");
   const search = root.querySelector("#reports-search");
   const dynamicFilters = root.querySelector("#reports-dynamic-filters");
+  const rangeRow = root.querySelector("#reports-range-row");
   const selectedHint = root.querySelector("#reports-selected-hint");
+  const contextTitle = root.querySelector(".report-context-title");
+  const contextText = root.querySelector(".report-context-text");
   const range = root.querySelector("#reports-range");
   const customRange = root.querySelector("#reports-custom-range");
   const resetBtn = root.querySelector("#reports-reset-btn");
@@ -613,118 +838,106 @@ function initReports() {
 
   const categories = {
     employee: {
-      title: "Employee Data",
-      subtitle: "Listings, profiles, and pay summaries per employee.",
+      title: "Employee",
+      subtitle: "Employee listing, profile, and payroll detail exports.",
     },
-    deductions: {
-      title: "Deductions",
-      subtitle: "SSB/Tax/Court/Lodgements/Vacation/Insurance and employer contributions.",
+    payroll: {
+      title: "Payroll",
+      subtitle: "Pay period, approval workflow, and deductions reports for operations and finance.",
     },
-    general: {
-      title: "General Data",
-      subtitle: "Gross expenses, trends, growth/shrinkage, and period comparisons.",
+    compliance: {
+      title: "Compliance",
+      subtitle: "Tax-facing reports for reconciliations and filing support.",
     },
   };
 
-  // Define reports + the extra filters each one needs.
+  // Report definitions mapped directly to backend report_type values.
   const reports = [
-    // Employee Data
     {
-      id: "emp_listing",
+      id: "employee_listing",
+      reportType: "employee_listing",
       category: "employee",
       title: "Employee Listing",
-      desc: "A clean list of employees with department, status, and hire date.",
+      desc: "Directory of employees with department, status, and compensation.",
       tags: ["HR", "Directory"],
+      usesDateRange: false,
       filters: [
-        { type: "select", name: "status", label: "Status", options: ["All", "Active", "Inactive"] },
-        { type: "select", name: "department", label: "Department", options: ["All", "Admin", "Sales", "Operations", "Finance"] },
+        { type: "select", name: "status", label: "Employee status", options: ["All"] },
+        { type: "select", name: "department", label: "Department", options: ["All"] },
       ],
     },
     {
-      id: "emp_profile",
+      id: "employee_profile",
+      reportType: "employee_profile",
       category: "employee",
-      title: "Employee Information",
-      desc: "Detailed information for a single employee (profile view).",
+      title: "Employee Profile",
+      desc: "Detailed profile report for one selected employee.",
       tags: ["HR"],
+      usesDateRange: false,
       filters: [
-        { type: "employee", name: "employee_id", label: "Employee" },
-        { type: "toggle", name: "include_contacts", label: "Include contact details" },
+        { type: "employee", name: "employee_id", label: "Employee", required: true },
       ],
     },
     {
-      id: "emp_pay",
-      category: "employee",
-      title: "Employee Pay Summary",
-      desc: "Gross, deductions, and net pay for employees across a period.",
-      tags: ["Payroll", "Summary"],
+      id: "employee_payroll",
+      reportType: "employee_payroll",
+      category: "payroll",
+      title: "Employee Payroll Detail",
+      desc: "Who is pending/paid in a pay period with full payroll financials.",
+      tags: ["Payroll", "Pay Run"],
+      usesDateRange: false,
       filters: [
-        { type: "select", name: "group_by", label: "Group by", options: ["Employee", "Department"] },
-        { type: "toggle", name: "include_overtime", label: "Include overtime breakdown" },
+        { type: "payroll_period", name: "payroll_period_id", label: "Pay period" },
+        { type: "employee", name: "employee_id", label: "Employee (optional)" },
       ],
     },
-
-    // Deductions
+    {
+      id: "payroll_period_summary",
+      reportType: "payroll_period_summary",
+      category: "payroll",
+      title: "Payroll Period Summary",
+      desc: "Gross, deductions, and net totals by payroll period.",
+      tags: ["Finance", "Summary"],
+      usesDateRange: true,
+      filters: [
+        { type: "payroll_period", name: "payroll_period_id", label: "Pay period (optional)" },
+      ],
+    },
     {
       id: "deductions_summary",
-      category: "deductions",
+      reportType: "deductions_summary",
+      category: "payroll",
       title: "Deductions Summary",
-      desc: "Totals per deduction type (employee + employer contributions if applicable).",
-      tags: ["SSB", "Tax"],
+      desc: "Tax, employee savings, company match, and total deductions.",
+      tags: ["Tax", "Deductions"],
+      usesDateRange: true,
       filters: [
-        {
-          type: "multiselect",
-          name: "deduction_types",
-          label: "Deduction types",
-          options: ["Social Security", "Tax", "Courts", "Lodgements", "Vacation", "Insurance", "Employer Contributions"],
-        },
-        { type: "toggle", name: "split_employer", label: "Split employer vs employee" },
+        { type: "payroll_period", name: "payroll_period_id", label: "Pay period (optional)" },
+      ],
+    },
+    {
+      id: "payroll_approval_history",
+      reportType: "payroll_approval_history",
+      category: "payroll",
+      title: "Payroll Approval History",
+      desc: "Audit trail of payroll generation, approval/locking, and paid actions.",
+      tags: ["Audit", "Approval"],
+      usesDateRange: true,
+      filters: [
+        { type: "payroll_period", name: "payroll_period_id", label: "Pay period (optional)" },
       ],
     },
     {
       id: "tax_register",
-      category: "deductions",
+      reportType: "tax_register",
+      category: "compliance",
       title: "Tax Register",
-      desc: "Tax withheld per employee, suitable for filing/reconciliation.",
-      tags: ["Compliance"],
+      desc: "Employee-level tax deductions for reporting and filing support.",
+      tags: ["Compliance", "Tax"],
+      usesDateRange: true,
       filters: [
-        { type: "employee", name: "employee_id", label: "Employee" },
-        { type: "select", name: "tax_mode", label: "Tax mode", options: ["All", "PAYE", "Flat", "Other"] },
-        { type: "toggle", name: "include_tin", label: "Include TIN/ID column" },
-      ],
-    },
-
-    // General Data
-    {
-      id: "gross_expenses",
-      category: "general",
-      title: "Gross Payroll Expenses",
-      desc: "Total payroll cost for the selected period, with trend line.",
-      tags: ["Finance"],
-      filters: [
-        { type: "select", name: "granularity", label: "Granularity", options: ["Monthly", "Bi-weekly", "Weekly"] },
-        { type: "toggle", name: "include_employer", label: "Include employer contributions" },
-      ],
-    },
-    {
-      id: "growth_shrinkage",
-      category: "general",
-      title: "Growth / Shrinkage",
-      desc: "Compare headcount and payroll changes across two periods.",
-      tags: ["Trends"],
-      filters: [
-        { type: "select", name: "compare_to", label: "Compare to", options: ["Previous period", "Same period last year", "Custom"] },
-        { type: "toggle", name: "show_headcount", label: "Include headcount" },
-      ],
-    },
-    {
-      id: "payroll_annual",
-      category: "general",
-      title: "Monthly / Annual Payroll",
-      desc: "Breakdown of payroll totals by month, plus annual roll-up.",
-      tags: ["Budget"],
-      filters: [
-        { type: "select", name: "year", label: "Year", options: ["2026", "2025", "2024"] },
-        { type: "toggle", name: "include_charts", label: "Include charts" },
+        { type: "employee", name: "employee_id", label: "Employee (optional)" },
+        { type: "payroll_period", name: "payroll_period_id", label: "Pay period (optional)" },
       ],
     },
   ];
@@ -735,6 +948,7 @@ function initReports() {
     employees: [],
     departments: [],
     statuses: [],
+    periods: [],
   };
 
   function setModalOpen(which, open) {
@@ -747,12 +961,20 @@ function initReports() {
 
   async function loadReportOptions() {
     try {
-      const res = await fetch("/api/reports/options");
-      if (!res.ok) throw new Error(res.statusText);
-      const data = await res.json();
-      reportOptions.employees = Array.isArray(data.employees) ? data.employees : [];
-      reportOptions.departments = Array.isArray(data.departments) ? data.departments : [];
-      reportOptions.statuses = Array.isArray(data.statuses) ? data.statuses : [];
+      const [filtersRes, periodsRes] = await Promise.all([
+        fetch("/api/reports/options"),
+        fetch("/api/payroll/periods"),
+      ]);
+      if (!filtersRes.ok) throw new Error(filtersRes.statusText);
+      if (!periodsRes.ok) throw new Error(periodsRes.statusText);
+
+      const filterData = await filtersRes.json();
+      const periodData = await periodsRes.json();
+
+      reportOptions.employees = Array.isArray(filterData.employees) ? filterData.employees : [];
+      reportOptions.departments = Array.isArray(filterData.departments) ? filterData.departments : [];
+      reportOptions.statuses = Array.isArray(filterData.statuses) ? filterData.statuses : [];
+      reportOptions.periods = Array.isArray(periodData.periods) ? periodData.periods : [];
 
       if (selectedReportId) {
         const report = reports.find((r) => r.id === selectedReportId);
@@ -770,15 +992,6 @@ function initReports() {
     for (const f of report.filters) {
       const row = document.createElement("div");
       row.className = "form-row";
-
-      if (f.type === "toggle") {
-        row.innerHTML = `
-          <label class="chip" style="justify-content:flex-start;">
-            <input type="checkbox" name="${f.name}" value="1" /> ${f.label}
-          </label>`;
-        dynamicFilters.appendChild(row);
-        continue;
-      }
 
       const label = document.createElement("label");
       label.className = "label";
@@ -813,17 +1026,32 @@ function initReports() {
           select.appendChild(o);
         }
         row.appendChild(select);
-      } else if (f.type === "multiselect") {
-        const wrap = document.createElement("div");
-        wrap.className = "chips";
-        for (const opt of f.options) {
-          const chip = document.createElement("label");
-          chip.className = "chip";
-          chip.innerHTML = `<input type="checkbox" name="${f.name}" value="${opt}" checked /> ${opt}`;
-          wrap.appendChild(chip);
-        }
-        row.appendChild(wrap);
       } else if (f.type === "employee") {
+        const select = document.createElement("select");
+        select.className = "select";
+        select.id = id;
+        select.name = f.name;
+        if (f.required) select.required = true;
+
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = reportOptions.employees.length
+          ? (f.required ? "Select employee..." : "All employees")
+          : "No employees available";
+        if (f.required) placeholder.disabled = true;
+        select.appendChild(placeholder);
+
+        reportOptions.employees.forEach((emp) => {
+          const o = document.createElement("option");
+          o.value = String(emp.id);
+          o.textContent = `${emp.name} (${emp.status})`;
+          select.appendChild(o);
+        });
+        if (f.required && reportOptions.employees.length) {
+          select.value = String(reportOptions.employees[0].id);
+        }
+        row.appendChild(select);
+      } else if (f.type === "payroll_period") {
         const select = document.createElement("select");
         select.className = "select";
         select.id = id;
@@ -831,15 +1059,13 @@ function initReports() {
 
         const placeholder = document.createElement("option");
         placeholder.value = "";
-        placeholder.textContent = reportOptions.employees.length
-          ? "Select employee..."
-          : "No employees available";
+        placeholder.textContent = "Current pay period";
         select.appendChild(placeholder);
 
-        reportOptions.employees.forEach((emp) => {
+        reportOptions.periods.forEach((period) => {
           const o = document.createElement("option");
-          o.value = String(emp.id);
-          o.textContent = `${emp.name} (${emp.status})`;
+          o.value = String(period.id);
+          o.textContent = `${period.start_date} to ${period.end_date} (${period.status})`;
           select.appendChild(o);
         });
         row.appendChild(select);
@@ -856,6 +1082,11 @@ function initReports() {
       .filter((r) => !q || r.title.toLowerCase().includes(q) || r.desc.toLowerCase().includes(q));
 
     cardsWrap.innerHTML = "";
+    if (!filtered.length) {
+      cardsWrap.innerHTML = `<div class="report-desc">No reports match your search.</div>`;
+      return;
+    }
+
     filtered.forEach((r) => {
       const card = document.createElement("div");
       card.className = "report-card" + (r.id === selectedReportId ? " is-selected" : "");
@@ -872,6 +1103,21 @@ function initReports() {
     });
   }
 
+  function updateReportContext(report) {
+    if (!contextTitle || !contextText) return;
+
+    if (!report) {
+      contextTitle.textContent = "No report selected";
+      contextText.textContent = "Choose a report card to load the correct filters.";
+      return;
+    }
+
+    contextTitle.textContent = report.title;
+    contextText.textContent = report.usesDateRange
+      ? "This report supports date-based filtering."
+      : "This report does not use date range filters.";
+  }
+
   function setCategory(cat) {
     activeCategory = cat;
     selectedReportId = null;
@@ -879,6 +1125,8 @@ function initReports() {
     previewBtn.disabled = true;
     selectedHint.textContent = "Select a report to configure options.";
     renderDynamicFilters(null);
+    updateReportContext(null);
+    if (rangeRow) rangeRow.hidden = false;
     search.value = "";
     listTitle.textContent = categories[cat].title;
     listSubtitle.textContent = categories[cat].subtitle;
@@ -889,6 +1137,9 @@ function initReports() {
       t.setAttribute("aria-selected", String(active));
     });
     renderCards();
+
+    const first = reports.find((r) => r.category === cat);
+    if (first) setReport(first.id);
   }
 
   function setReport(id) {
@@ -897,6 +1148,11 @@ function initReports() {
     selectedHint.textContent = report ? `Selected: ${report.title}` : "Select a report to configure options.";
     generateBtn.disabled = !report;
     previewBtn.disabled = !report;
+    if (rangeRow && report) {
+      rangeRow.hidden = !report.usesDateRange;
+      if (!report.usesDateRange) customRange.hidden = true;
+    }
+    updateReportContext(report || null);
     renderDynamicFilters(report);
     renderCards();
   }
@@ -961,23 +1217,39 @@ function initReports() {
     if (e.target.closest("[data-help-close]")) setModalOpen("help", false);
   });
 
-  function mapReportType(reportId) {
-    if (!reportId) return null;
-    if (reportId === "emp_listing") return "employee_listing";
-    if (reportId === "emp_profile") return "employee_profile";
-    if (reportId === "emp_pay") return "employee_payroll";
-    if (reportId === "deductions_summary") return "deductions_summary";
-    if (reportId === "tax_register") return "tax_register";
-    if (reportId === "gross_expenses" || reportId === "growth_shrinkage" || reportId === "payroll_annual") {
-      return "payroll_period_summary";
-    }
-    return null;
-  }
-
   function extractFilename(contentDisposition, fallback) {
     if (!contentDisposition) return fallback;
     const match = contentDisposition.match(/filename=\"?([^"]+)\"?/i);
     return match ? match[1] : fallback;
+  }
+
+  function localDateIso(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function applyPresetDateRange(rangeValue, payload) {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    if (rangeValue === "last_month") {
+      start.setMonth(start.getMonth() - 1);
+      end.setMonth(end.getMonth() - 1);
+    } else if (rangeValue === "this_year") {
+      start.setMonth(0, 1);
+      end.setMonth(11, 31);
+    } else if (rangeValue === "last_year") {
+      start.setFullYear(start.getFullYear() - 1, 0, 1);
+      end.setFullYear(end.getFullYear() - 1, 11, 31);
+    } else if (rangeValue !== "this_month") {
+      return;
+    }
+
+    payload.start_date = localDateIso(start);
+    payload.end_date = localDateIso(end);
   }
 
   function downloadBlob(blob, filename) {
@@ -997,7 +1269,7 @@ function initReports() {
     const report = reports.find((r) => r.id === selectedReportId);
     if (!report) return;
 
-    const reportType = mapReportType(report.id);
+    const reportType = report.reportType;
     if (!reportType) {
       alert("This report is not yet wired to backend generation.");
       return;
@@ -1006,12 +1278,10 @@ function initReports() {
     const form = root.querySelector("#reports-filters-form");
     const formData = new FormData(form);
     const preferredFormat = String(formData.get("format") || "csv").toLowerCase();
-    const backendFormat = preferredFormat === "pdf" || preferredFormat === "xlsx"
-      ? "csv"
-      : preferredFormat;
+    const backendFormat = preferredFormat === "xlsx" ? "csv" : preferredFormat;
 
     if (preferredFormat !== backendFormat) {
-      alert(`Backend export currently supports CSV/JSON. Generating ${backendFormat.toUpperCase()} instead.`);
+      alert(`XLSX export is not available yet. Generating ${backendFormat.toUpperCase()} instead.`);
     }
 
     const payload = {
@@ -1024,6 +1294,15 @@ function initReports() {
       const employeeId = Number(employeeIdRaw);
       if (Number.isFinite(employeeId)) payload.employee_id = employeeId;
     }
+    if (report.reportType === "employee_profile" && payload.employee_id == null) {
+      const fallbackEmployee = reportOptions.employees[0];
+      if (fallbackEmployee) {
+        payload.employee_id = Number(fallbackEmployee.id);
+      } else {
+        alert("No employee is available to generate an employee profile report.");
+        return;
+      }
+    }
 
     const department = String(formData.get("department") || "").trim();
     if (department && department !== "all") {
@@ -1035,17 +1314,22 @@ function initReports() {
       payload.status = status;
     }
 
-    const payrollPeriodSelect = document.getElementById("pay-period");
-    if (payrollPeriodSelect && payrollPeriodSelect.value) {
-      const periodId = Number(payrollPeriodSelect.value);
+    const payrollPeriodRaw = String(formData.get("payroll_period_id") || "").trim();
+    if (payrollPeriodRaw) {
+      const periodId = Number(payrollPeriodRaw);
       if (Number.isFinite(periodId)) payload.payroll_period_id = periodId;
     }
 
-    if (formData.get("range") === "custom") {
-      const start = formData.get("start");
-      const end = formData.get("end");
-      if (start) payload.start_date = start;
-      if (end) payload.end_date = end;
+    if (report.usesDateRange) {
+      const rangeValue = String(formData.get("range") || "").trim().toLowerCase();
+      if (rangeValue === "custom") {
+        const start = formData.get("start");
+        const end = formData.get("end");
+        if (start) payload.start_date = start;
+        if (end) payload.end_date = end;
+      } else {
+        applyPresetDateRange(rangeValue, payload);
+      }
     }
 
     modalGenerate.disabled = true;
@@ -1064,11 +1348,11 @@ function initReports() {
         throw new Error(text || "Failed to generate report.");
       }
 
-      if (backendFormat === "csv") {
+      if (backendFormat === "csv" || backendFormat === "pdf") {
         const blob = await res.blob();
         const filename = extractFilename(
           res.headers.get("content-disposition"),
-          `${reportType}.csv`,
+          `${reportType}.${backendFormat}`,
         );
         downloadBlob(blob, filename);
       } else {
@@ -1094,23 +1378,57 @@ function initReports() {
   function buildSummary(report) {
     const form = root.querySelector("#reports-filters-form");
     const fd = new FormData(form);
-    const obj = {};
-    for (const [k, v] of fd.entries()) {
-      if (obj[k]) {
-        if (Array.isArray(obj[k])) obj[k].push(v);
-        else obj[k] = [obj[k], v];
-      } else {
-        obj[k] = v;
-      }
-    }
-
-    const pretty = (val) => {
-      if (Array.isArray(val)) return val.join(", ");
-      return val || "—";
+    const labelMap = {
+      range: "Date range",
+      start: "Start date",
+      end: "End date",
+      format: "Export format",
+      employee_id: "Employee",
+      department: "Department",
+      status: "Status",
+      payroll_period_id: "Pay period",
     };
 
-    const rows = Object.entries(obj)
-      .map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:rgba(255,255,255,0.72)">${k}</span><span>${pretty(v)}</span></div>`)
+    const periodNameById = new Map(
+      reportOptions.periods.map((p) => [String(p.id), `${p.start_date} to ${p.end_date} (${p.status})`]),
+    );
+    const employeeNameById = new Map(
+      reportOptions.employees.map((e) => [String(e.id), `${e.name} (${e.status})`]),
+    );
+
+    const entries = [];
+    for (const [key, value] of fd.entries()) {
+      if (!report.usesDateRange && (key === "range" || key === "start" || key === "end")) {
+        continue;
+      }
+      const textValue = String(value || "").trim();
+      if (!textValue) continue;
+
+      let displayValue = textValue;
+      if (key === "employee_id") {
+        displayValue = employeeNameById.get(textValue) || textValue;
+      } else if (key === "payroll_period_id") {
+        displayValue = periodNameById.get(textValue) || "Current pay period";
+      } else if (key === "format") {
+        displayValue = textValue.toUpperCase();
+      } else if (textValue === "all") {
+        displayValue = "All";
+      } else if (key === "range") {
+        displayValue = textValue.replace(/_/g, " ");
+      }
+
+      entries.push({
+        label: labelMap[key] || key,
+        value: displayValue,
+      });
+    }
+
+    if (!entries.length) {
+      entries.push({ label: "Filters", value: "Default report settings" });
+    }
+
+    const rows = entries
+      .map(({ label, value }) => `<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:rgba(255,255,255,0.72)">${label}</span><span>${value}</span></div>`)
       .join("");
 
     return `

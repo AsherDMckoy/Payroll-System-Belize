@@ -2,7 +2,7 @@
   <header class="page-header">
     <div>
       <h2 class="page-title">Generate Reports</h2>
-      <p class="page-subtitle">Pick a category, choose a report, then refine filters and export.</p>
+      <p class="page-subtitle">Choose a report, set only the relevant filters, then export.</p>
     </div>
     <div class="page-actions">
       <button class="btn btn-ghost" type="button" id="reports-help-btn">How it works</button>
@@ -11,17 +11,17 @@
   </header>
 
   <div class="tabs" role="tablist" aria-label="Report categories">
-    <button class="tab is-active" type="button" role="tab" aria-selected="true" data-category="employee">Employee Data</button>
-    <button class="tab" type="button" role="tab" aria-selected="false" data-category="deductions">Deductions</button>
-    <button class="tab" type="button" role="tab" aria-selected="false" data-category="general">General Data</button>
+    <button class="tab is-active" type="button" role="tab" aria-selected="true" data-category="employee">Employee</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-category="payroll">Payroll</button>
+    <button class="tab" type="button" role="tab" aria-selected="false" data-category="compliance">Compliance</button>
   </div>
 
   <div class="reports-layout">
     <section class="panel" aria-label="Report list">
       <div class="panel-header">
         <div>
-          <h3 class="panel-title" id="reports-list-title">Employee Data</h3>
-          <p class="panel-subtitle" id="reports-list-subtitle">Listings, profiles, and pay summaries per employee.</p>
+          <h3 class="panel-title" id="reports-list-title">Employee</h3>
+          <p class="panel-subtitle" id="reports-list-subtitle">Employee listing, profile, and payroll detail exports.</p>
         </div>
         <div class="panel-tools">
           <div class="input-with-icon">
@@ -38,12 +38,17 @@
       <div class="panel-header">
         <div>
           <h3 class="panel-title">Filters</h3>
-          <p class="panel-subtitle" id="reports-selected-hint">Select a report to configure options.</p>
+          <p class="panel-subtitle" id="reports-selected-hint">Select a report to configure its filters.</p>
         </div>
       </div>
 
       <form class="filters" id="reports-filters-form">
-        <div class="form-row">
+        <div class="report-context" id="reports-context">
+          <div class="report-context-title">No report selected</div>
+          <p class="report-context-text">Choose a report card to load the correct filters.</p>
+        </div>
+
+        <div class="form-row" id="reports-range-row">
           <label class="label" for="reports-range">Date range</label>
           <select class="select" id="reports-range" name="range">
             <option value="this_month">This month</option>
@@ -80,15 +85,6 @@
           </select>
         </div>
 
-        <div class="form-row">
-          <label class="label" for="reports-include">Include</label>
-          <div class="chips">
-            <label class="chip"><input type="checkbox" name="include" value="totals" checked /> Totals</label>
-            <label class="chip"><input type="checkbox" name="include" value="breakdown" checked /> Breakdown</label>
-            <label class="chip"><input type="checkbox" name="include" value="notes" /> Notes</label>
-          </div>
-        </div>
-
         <div class="form-actions">
           <button class="btn btn-ghost" type="button" id="reports-reset-btn">Reset</button>
           <button class="btn" type="button" id="reports-preview-btn" disabled>Preview</button>
@@ -107,7 +103,7 @@
       </div>
       <div class="modal-body">
         <div class="summary" id="reports-modal-summary"></div>
-        <p class="muted">This generates real backend reports. CSV and JSON exports are available now.</p>
+        <p class="muted">This generates real backend reports. PDF and CSV exports are available now.</p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" type="button" data-modal-close>Cancel</button>
@@ -125,12 +121,12 @@
       </div>
       <div class="modal-body">
         <ol class="steps">
-          <li><strong>Choose a category</strong> (Employee Data, Deductions, or General Data).</li>
+          <li><strong>Choose a category</strong> (Employee, Payroll, or Compliance).</li>
           <li><strong>Select a report</strong> from the list.</li>
-          <li><strong>Refine filters</strong> on the right (date range, employee, department, deduction types).</li>
+          <li><strong>Refine filters</strong> on the right (only filters relevant to that report are shown).</li>
           <li><strong>Preview or generate</strong> to export as PDF/CSV/XLSX.</li>
         </ol>
-        <p class="muted">Tip: This UI posts filter values to <code>/api/reports/generate</code>. Unsupported formats fall back to CSV.</p>
+        <p class="muted">Tip: This UI posts filter values to <code>/api/reports/generate</code>. XLSX falls back to CSV.</p>
       </div>
       <div class="modal-footer">
         <button class="btn" type="button" data-help-close>Got it</button>

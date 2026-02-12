@@ -27,6 +27,10 @@ pub struct IndexTemplate {
                       // in your template
 }
 
+#[derive(Template)]
+#[template(path = "login.html")]
+pub struct LoginTemplate;
+
 #[derive(Template)] // this will generate the code...
 #[template(path = "dashboard_overview.html")] // using the template in this path, relative to the `templates` dir in the crate root
 pub struct DashboardOverviewTemplate;
