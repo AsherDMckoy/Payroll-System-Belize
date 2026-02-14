@@ -2,7 +2,104 @@
 
 Internal payroll management app built with Rust (`axum`) + PostgreSQL.
 
-## Local Run
+## Installation and Run Guide
+
+### 1) Clone the repository
+
+```bash
+git clone https://github.com/AsherDMckoy/Payroll-System-Belize.git
+cd Payroll-System-Belize
+```
+
+If you are running from a local copy with a different folder name, just `cd` into that folder.
+
+### 2) Prerequisites
+
+- `git`
+- Docker Engine
+- Docker Compose v2 (`docker compose`)
+- Optional for local non-Docker run: Rust toolchain (`rustup`, `cargo`) + PostgreSQL
+
+Check:
+
+```bash
+docker --version
+docker compose version
+```
+
+### 3) Run with Docker (HTTP)
+
+Build and start app + database:
+
+```bash
+docker compose up --build
+```
+
+If your Docker setup requires elevated privileges, use:
+
+```bash
+sudo docker compose up --build
+```
+
+Application URL:
+
+- `http://localhost:9000`
+
+### 4) Run with Docker (HTTPS / TLS)
+
+This project includes HTTPS support through a Docker TLS reverse proxy (`Caddy`) with local/internal certificates.
+
+Build and start app + database + TLS proxy:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml up --build
+```
+
+Application URL:
+
+- `https://localhost:9443`
+
+Notes:
+
+- In HTTPS mode, cookies are set with `Secure` (`COOKIE_SECURE=true` is injected through `docker-compose.https.yml`).
+- Browsers may show a certificate warning for local/internal certificates; this is expected in local demo mode.
+
+### 5) Verify the application
+
+Health endpoints:
+
+- `GET /health` (liveness)
+- `GET /ready` (readiness + DB check)
+
+Example checks:
+
+```bash
+curl http://localhost:9000/health
+curl http://localhost:9000/ready
+```
+
+For HTTPS mode:
+
+```bash
+curl -k https://localhost:9443/health
+curl -k https://localhost:9443/ready
+```
+
+### 6) Stop containers
+
+HTTP stack:
+
+```bash
+docker compose down
+```
+
+HTTPS stack:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml down
+```
+
+### 7) Optional: local run without Docker
 
 1. Create a `.env` file:
 
@@ -11,9 +108,10 @@ DATABASE_URL=postgres://postgres@localhost/payroll_db
 RUN_MIGRATIONS_ON_STARTUP=true
 APP_HOST=0.0.0.0
 PORT=9000
+COOKIE_SECURE=false
 ```
 
-2. Start PostgreSQL.
+2. Start PostgreSQL locally.
 3. Run:
 
 ```bash
@@ -22,19 +120,11 @@ cargo run
 
 The server runs on `http://localhost:9000`.
 
-Health endpoints:
-- `GET /health` (liveness)
-- `GET /ready` (readiness + DB check)
+### Docker service summary
 
-## Docker (Self-Hosted)
-
-Start app + database:
-
-```bash
-docker compose up --build
-```
-
-The app is exposed on `http://localhost:9000` and runs migrations on startup.
+- `db`: PostgreSQL 18
+- `app`: Rust Axum application
+- `https-proxy` (optional): Caddy TLS terminator (`docker-compose.https.yml`)
 
 ## Lecturer Admin Login
 
@@ -43,6 +133,15 @@ Use this account to access the system for grading/demo:
 - Full Name: `Tobi McGuire`
 - Username: `Bullly2003`
 - Password: `SpideySenes5!`
+
+## Generated Reports Directory
+
+The `reports/` directory contains sample generated exports:
+
+- `reports/sample-employee-profile-report.pdf` (employee profile sample PDF)
+- `reports/sample-payroll-summary-belizebankfriendlyformat.csv` (payroll summary sample CSV)
+
+The payroll summary CSV export is generated in a Belize Bank-friendly layout intended for payroll submission from a business account via the Belize Bank web application workflow.
 
 ## Database Schema (ERD)
 

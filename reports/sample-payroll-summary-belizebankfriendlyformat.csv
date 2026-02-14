@@ -1,0 +1,2 @@
+period_id,start_date,end_date,pay_date,status,employee_count,total_gross_pay,total_deductions,total_net_pay
+7,2026-02-01,2026-02-14,2026-02-15,paid,18,1229853.83,277418.74,952435.09

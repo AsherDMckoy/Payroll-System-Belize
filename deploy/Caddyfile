@@ -1,0 +1,16 @@
+{
+    # Local/demo TLS in Docker without external certificate provisioning.
+    auto_https disable_redirects
+}
+
+https://localhost, https://127.0.0.1 {
+    reverse_proxy app:9000
+    tls internal
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
