@@ -2,6 +2,24 @@
 
 Internal payroll management app built with Rust (`axum`) + PostgreSQL.
 
+## Quick Start (GitHub + HTTPS Docker)
+
+```bash
+git clone https://github.com/AsherDMckoy/Payroll-System-Belize.git
+cd Payroll-System-Belize
+docker compose -f docker-compose.yml -f docker-compose.https.yml up --build
+```
+
+If your Docker setup requires elevated privileges:
+
+```bash
+sudo docker compose -f docker-compose.yml -f docker-compose.https.yml up --build
+```
+
+Open:
+
+- `https://localhost:9443`
+
 ## Installation and Run Guide
 
 ### 1) Clone the repository
@@ -53,6 +71,12 @@ Build and start app + database + TLS proxy:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.https.yml up --build
+```
+
+If your Docker setup requires elevated privileges:
+
+```bash
+sudo docker compose -f docker-compose.yml -f docker-compose.https.yml up --build
 ```
 
 Application URL:
