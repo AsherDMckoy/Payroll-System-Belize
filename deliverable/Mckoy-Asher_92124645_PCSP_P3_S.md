@@ -163,13 +163,19 @@ The final UI supports the complete payroll operations path.
 
 Users authenticate through the login page and receive a session cookie for protected routes.
 
-![Login Page](../screenshots/login-page.png)
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/login-page.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.1: Login page}\end{center}
 
 ### 7.2 Dashboard Overview
 
 The dashboard summarizes payroll totals, tax/deduction activity, employee count, pay period context, and recent payroll activity.
 
-![Dashboard Page](../screenshots/dashboard-page.png)
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/dashboard-page.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.2: Dashboard overview}\end{center}
 
 ### 7.3 Payroll Processing Workflow
 
@@ -181,23 +187,56 @@ The payroll screen guides users through:
 4. Mark payroll as paid  
 5. Review audit trail and employee status
 
-![Payroll Page](../screenshots/payroll-page.png)
-![Generate Payroll Action](../screenshots/generate-payroll-clicked.png)
-![Approve Payroll Action](../screenshots/approve-payroll-clicked.png)
-![Mark As Paid Action](../screenshots/mark-as-paid-clicked.png)
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/payroll-page.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.3: Payroll processing page overview}\end{center}
+
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/generate-payroll-clicked.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.4: Generate payroll action result}\end{center}
+
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/approve-payroll-clicked.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.5: Approve and lock payroll action result}\end{center}
+
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/mark-as-paid-clicked.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.6: Mark payroll as paid action result}\end{center}
 
 ### 7.4 Employee and Reporting Workflows
 
 Employees page provides payroll-oriented employee visibility (status, net pay, tax, contributions), with per-row detail cards.
 
-![Employees Page](../screenshots/employees-page.png)
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/employees-page.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.7: Employees page with profile details}\end{center}
 
 Reports are organized by category (Employee, Payroll, Compliance), with context-driven filters and export options.
 
-![Reports Employee Category](../screenshots/reports-page-employees.png)
-![Reports Payroll Category](../screenshots/reports-page-payroll.png)
-![Reports Compliance Category](../screenshots/reports-page-compliance.png)
-![Report Preview Modal](../screenshots/preview-report-clicked.png)
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/reports-page-employees.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.8: Reports page (Employee category)}\end{center}
+
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/reports-page-payroll.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.9: Reports page (Payroll category)}\end{center}
+
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/reports-page-compliance.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.10: Reports page (Compliance category)}\end{center}
+
+\begin{center}
+\includegraphics[width=0.95\linewidth]{../screenshots/preview-report-clicked.png}
+\end{center}
+\begin{center}\footnotesize\textit{Figure 7.11: Report generation preview modal}\end{center}
 
 ---
 
